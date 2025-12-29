@@ -7,289 +7,467 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="shared/styles.css">
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; overflow: hidden; }
+        * { 
+            box-sizing: border-box; 
+            -webkit-tap-highlight-color: transparent;
+        }
+        body { 
+            margin: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
         
-        .header { 
-            background: #f59e0b; 
-            color: white; 
-            padding: 0.75rem 1rem;
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
+        /* Mapa de fondo */
+        #map {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        /* Header flotante */
+        .floating-header {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            z-index: 1000;
-            height: 56px;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
         }
-        .header h1 { margin: 0; font-size: 1.25rem; }
-        .header-actions { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
         
-        /* Vista principal tabs (Mapa / Carreras) */
-        .main-tabs {
+        .status-badge {
+            background: rgba(255,255,255,0.95);
+            padding: 0.5rem 1rem;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .status-badge.disponible { color: #10b981; }
+        .status-badge.inactivo { color: #6b7280; }
+        .status-badge.en-carrera { color: #f59e0b; }
+        
+        .menu-btn {
+            background: rgba(255,255,255,0.95);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        /* Panel deslizante inferior */
+        .bottom-sheet {
             position: fixed;
-            top: 56px;
+            bottom: 0;
             left: 0;
             right: 0;
-            display: flex;
             background: white;
-            border-bottom: 2px solid #e5e7eb;
-            z-index: 999;
+            border-radius: 1.5rem 1.5rem 0 0;
+            z-index: 50;
+            transform: translateY(calc(100% - 180px));
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 -4px 24px rgba(0,0,0,0.2);
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
         }
         
-        .main-tab {
+        .bottom-sheet.expanded {
+            transform: translateY(0);
+        }
+        
+        .sheet-header {
+            padding: 1rem;
+            cursor: grab;
+            user-select: none;
+        }
+        
+        .sheet-handle {
+            width: 40px;
+            height: 4px;
+            background: #d1d5db;
+            border-radius: 999px;
+            margin: 0 auto 1rem;
+        }
+        
+        .sheet-tabs {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .sheet-tab {
             flex: 1;
             padding: 0.75rem;
-            background: white;
             border: none;
+            background: none;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: #6b7280;
             border-bottom: 3px solid transparent;
             cursor: pointer;
-            font-weight: 600;
-            font-size: 1rem;
-            color: #6b7280;
             transition: all 0.2s;
-        }
-        
-        .main-tab.active {
-            color: #f59e0b;
-            border-bottom-color: #f59e0b;
-            background: #fffbeb;
-        }
-        
-        .container { 
-            position: fixed;
-            top: 106px; /* header + main-tabs */
-            left: 0;
-            right: 0;
-            bottom: 0;
-        }
-        
-        .view-pane {
-            display: none;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-        }
-        
-        .view-pane.active {
-            display: block;
-        }
-        
-        .map-container { 
-            width: 100%;
-            height: 100%;
             position: relative;
         }
         
-        #map { 
-            width: 100%;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
+        .sheet-tab.active {
+            color: #000;
+            border-bottom-color: #000;
         }
         
-        .carreras-container {
-            width: 100%;
-            height: 100%;
+        .tab-badge {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: #ef4444;
+            color: white;
+            font-size: 0.625rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 999px;
+            font-weight: 700;
+        }
+        
+        .sheet-content {
+            flex: 1;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             padding: 1rem;
-            background: #f9fafb;
         }
         
-        .btn { 
-            padding: 0.75rem 1rem;
-            border: none; 
-            border-radius: 0.5rem; 
-            cursor: pointer; 
-            font-weight: 500;
-            font-size: 0.875rem;
+        /* Carrera Card - Estilo Uber */
+        .ride-card {
+            background: white;
+            border-radius: 1rem;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border: 2px solid #e5e7eb;
             transition: all 0.2s;
+            cursor: pointer;
         }
-        .btn-primary { background: #f59e0b; color: white; }
-        .btn-success { background: #10b981; color: white; }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-secondary { background: #6b7280; color: white; }
-        .btn-block { width: 100%; }
         
-        .estado-selector { 
+        .ride-card:active {
+            transform: scale(0.98);
+        }
+        
+        .ride-card.nueva {
+            border-color: #f59e0b;
+            background: linear-gradient(135deg, #fffbeb 0%, white 100%);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
+        }
+        
+        .ride-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        
+        .ride-type {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            font-size: 0.875rem;
+        }
+        
+        .ride-price {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #000;
+        }
+        
+        .ride-route {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .route-line {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .route-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+        }
+        
+        .route-dots {
+            width: 2px;
+            height: 20px;
+            background: repeating-linear-gradient(
+                to bottom,
+                #d1d5db 0,
+                #d1d5db 2px,
+                transparent 2px,
+                transparent 4px
+            );
+        }
+        
+        .route-dot.destination {
+            background: #ef4444;
+        }
+        
+        .route-info {
+            flex: 1;
+        }
+        
+        .route-point {
+            margin-bottom: 0.5rem;
+        }
+        
+        .route-label {
+            font-size: 0.625rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 0.125rem;
+        }
+        
+        .route-address {
+            font-size: 0.875rem;
+            color: #000;
+            font-weight: 500;
+            line-height: 1.3;
+        }
+        
+        .ride-stats {
+            display: flex;
+            gap: 1rem;
+            padding: 0.75rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .stat-value {
+            font-weight: 700;
+            color: #000;
+        }
+        
+        .ride-timer {
+            text-align: center;
+            padding: 0.75rem;
+            background: #fef3c7;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .timer-text {
+            font-size: 0.75rem;
+            color: #92400e;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        .timer-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #ef4444;
+            font-feature-settings: 'tnum';
+        }
+        
+        .ride-actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 0.5rem;
-            margin-bottom: 1rem;
         }
-        .estado-btn { 
-            padding: 0.75rem;
-            border: 2px solid #e5e7eb;
-            background: white;
-            border-radius: 0.5rem;
+        
+        .ride-actions.single {
+            grid-template-columns: 1fr;
+        }
+        
+        .btn {
+            padding: 1rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 700;
+            font-size: 1rem;
             cursor: pointer;
-            font-weight: 600;
-            font-size: 0.875rem;
             transition: all 0.2s;
         }
-        .estado-btn.disponible { 
-            border-color: #10b981;
-            background: #d1fae5;
-            color: #065f46;
-        }
-        .estado-btn.inactivo { 
-            border-color: #6b7280;
-            background: #f3f4f6;
-            color: #374151;
+        
+        .btn:active {
+            transform: scale(0.96);
         }
         
-        .card { 
+        .btn-primary {
+            background: #000;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-outline {
             background: white;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-            font-size: 0.875rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .card h4 { margin: 0 0 0.75rem 0; font-size: 1rem; }
-        .card p { margin: 0.5rem 0; }
-        .card-carrera { border-left: 4px solid #f59e0b; }
-        .card-colectiva { border-left: 4px solid #10b981; }
-        
-        .timer { 
-            font-size: 2rem;
-            font-weight: bold;
-            color: #ef4444;
-            text-align: center;
-            margin: 1rem 0;
-            animation: pulse 1s ease-in-out infinite;
+            border: 2px solid #e5e7eb;
+            color: #000;
         }
         
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+        /* Stats flotantes */
+        .floating-stats {
+            position: fixed;
+            top: 70px;
+            right: 1rem;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
         }
         
-        .badge { 
-            display: inline-block;
-            padding: 0.25rem 0.625rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
+        .stat-card {
+            background: rgba(255,255,255,0.95);
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 80px;
+        }
+        
+        .stat-card-value {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #000;
+        }
+        
+        .stat-card-label {
+            font-size: 0.625rem;
+            color: #6b7280;
             font-weight: 600;
         }
-        .badge-warning { background: #fef3c7; color: #92400e; }
-        .badge-success { background: #d1fae5; color: #065f46; }
-        .badge-info { background: #dbeafe; color: #1e40af; }
         
-        .emoji-marker { 
+        /* Empty state */
+        .empty-state {
+            padding: 3rem 1rem;
+            text-align: center;
+        }
+        
+        .empty-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+        
+        .empty-text {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+        
+        /* Menu lateral */
+        .side-menu {
+            position: fixed;
+            top: 0;
+            left: -300px;
+            width: 300px;
+            height: 100%;
+            background: white;
+            z-index: 200;
+            transition: left 0.3s;
+            padding: 1rem;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.2);
+        }
+        
+        .side-menu.open {
+            left: 0;
+        }
+        
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 199;
+            display: none;
+        }
+        
+        .menu-overlay.show {
+            display: block;
+        }
+        
+        .menu-item {
+            padding: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        .emoji-marker {
             font-size: 2rem;
             text-align: center;
             line-height: 30px;
         }
         
-        .tabs { 
-            display: flex;
-            border-bottom: 2px solid #e5e7eb;
-            margin-bottom: 1rem;
-            background: white;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        .tab-btn { 
-            flex: 1;
-            padding: 0.75rem;
-            background: none;
-            border: none;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            font-weight: 600;
-            font-size: 0.875rem;
-            color: #6b7280;
-        }
-        .tab-btn.active { 
-            color: #f59e0b;
-            border-bottom-color: #f59e0b;
-        }
-        .tab-pane { display: none; }
-        .tab-pane.active { display: block; }
-        
-        .stats { 
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.75rem;
-            margin-bottom: 1rem;
-        }
-        .stat-card { 
-            background: white;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .stat-value { 
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #f59e0b;
-        }
-        .stat-label { 
-            font-size: 0.75rem;
-            color: #6b7280;
-            margin-top: 0.25rem;
-        }
-        
         .notification {
             position: fixed;
-            top: 70px;
+            top: 1rem;
             left: 1rem;
             right: 1rem;
             background: white;
             padding: 1rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            z-index: 10000;
+            border-radius: 1rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            z-index: 300;
             animation: slideDown 0.3s;
-            font-weight: 500;
         }
+        
         @keyframes slideDown {
             from { transform: translateY(-100%); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
         
-        .empty-state {
-            text-align: center;
-            padding: 3rem 1rem;
-            color: #6b7280;
-        }
-        
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-        }
-        
         /* Tablet y Desktop */
         @media (min-width: 768px) {
-            .main-tabs {
-                display: none;
-            }
-            
-            .container {
-                top: 56px;
-                display: flex;
-            }
-            
-            .view-pane {
-                display: block !important;
-            }
-            
-            .carreras-container {
+            .bottom-sheet {
+                left: auto;
+                right: 1rem;
+                bottom: 1rem;
                 width: 400px;
-                border-right: 2px solid #e5e7eb;
-                background: white;
+                max-height: calc(100vh - 2rem);
+                border-radius: 1.5rem;
+                transform: translateY(0);
             }
             
-            .map-container {
-                flex: 1;
+            .floating-stats {
+                display: none;
             }
         }
     </style>
@@ -300,78 +478,97 @@
         <p>Cargando...</p>
     </div>
     
-    <header class="header">
-        <h1>🏍️ Conductor</h1>
-        <div class="header-actions">
-            <span id="welcomeMsg">...</span>
-            <button class="btn btn-danger" style="padding:0.5rem 0.75rem; font-size:0.75rem" onclick="cerrarSesion()">Salir</button>
-        </div>
-    </header>
+    <!-- Mapa principal -->
+    <div id="map"></div>
     
-    <!-- Tabs principales (solo móvil) -->
-    <div class="main-tabs">
-        <button class="main-tab" data-view="carreras" onclick="cambiarVista('carreras')">
-            📋 Carreras
-        </button>
-        <button class="main-tab active" data-view="mapa" onclick="cambiarVista('mapa')">
-            🗺️ Mapa
-        </button>
+    <!-- Header flotante -->
+    <div class="floating-header">
+        <button class="menu-btn" onclick="toggleMenu()">☰</button>
+        <div class="status-badge inactivo" id="statusBadge">
+            <span id="statusIcon">⚪</span>
+            <span id="statusText">Inactivo</span>
+        </div>
     </div>
     
-    <div class="container">
-        <!-- Vista de Carreras -->
-        <div id="view-carreras" class="view-pane carreras-container">
-            <div class="estado-selector">
-                <button class="estado-btn inactivo" id="btnDisponible" onclick="cambiarEstado('disponible')">
-                    🟢 Disponible
-                </button>
-                <button class="estado-btn inactivo" id="btnInactivo" onclick="cambiarEstado('inactivo')">
-                    ⚪ Inactivo
-                </button>
-            </div>
-            
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-value" id="statCarreras">0</div>
-                    <div class="stat-label">Carreras Hoy</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="statGanancias">L 0</div>
-                    <div class="stat-label">Ganancias</div>
-                </div>
-            </div>
-            
-            <div class="tabs">
-                <button class="tab-btn active" data-tab="directas">Directas</button>
-                <button class="tab-btn" data-tab="colectivas">Colectivas</button>
-            </div>
-            
-            <div id="tab-directas" class="tab-pane active">
-                <div id="carrerasDirectas">
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🏍️</div>
-                        <p>No hay carreras directas</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="tab-colectivas" class="tab-pane">
-                <div id="carrerasColectivas">
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🚐</div>
-                        <p>No hay carreras colectivas</p>
-                    </div>
-                </div>
-            </div>
+    <!-- Stats flotantes -->
+    <div class="floating-stats">
+        <div class="stat-card">
+            <div class="stat-card-value" id="statCarreras">0</div>
+            <div class="stat-card-label">HOY</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-value" id="statGanancias">L 0</div>
+            <div class="stat-card-label">GANADO</div>
+        </div>
+    </div>
+    
+    <!-- Panel deslizante inferior -->
+    <div class="bottom-sheet" id="bottomSheet">
+        <div class="sheet-header" id="sheetHeader">
+            <div class="sheet-handle"></div>
         </div>
         
-        <!-- Vista de Mapa -->
-        <div id="view-mapa" class="view-pane active map-container">
-            <div id="map"></div>
+        <div class="sheet-tabs">
+            <button class="sheet-tab active" data-tab="disponibles" onclick="cambiarTab('disponibles')">
+                Disponibles
+                <span class="tab-badge" id="badgeDisponibles" style="display:none">0</span>
+            </button>
+            <button class="sheet-tab" data-tab="activas" onclick="cambiarTab('activas')">
+                En Curso
+                <span class="tab-badge" id="badgeActivas" style="display:none">0</span>
+            </button>
+            <button class="sheet-tab" data-tab="completadas" onclick="cambiarTab('completadas')">
+                Completadas
+            </button>
+        </div>
+        
+        <div class="sheet-content">
+            <!-- Tab Disponibles -->
+            <div id="tab-disponibles" class="tab-pane active">
+                <div id="carrerasDisponibles">
+                    <div class="empty-state">
+                        <div class="empty-icon">🏍️</div>
+                        <div class="empty-text">No hay carreras disponibles</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab Activas -->
+            <div id="tab-activas" class="tab-pane" style="display:none">
+                <div id="carrerasActivas">
+                    <div class="empty-state">
+                        <div class="empty-icon">🚗</div>
+                        <div class="empty-text">No tienes carreras en curso</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab Completadas -->
+            <div id="tab-completadas" class="tab-pane" style="display:none">
+                <div id="carrerasCompletadas">
+                    <div class="empty-state">
+                        <div class="empty-icon">✅</div>
+                        <div class="empty-text">No hay carreras completadas hoy</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     
-    <div id="toast-container"></div>
+    <!-- Menu lateral -->
+    <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
+    <div class="side-menu" id="sideMenu">
+        <h2 style="margin-top:2rem">Menu</h2>
+        <div class="menu-item" onclick="cambiarEstado('disponible')">
+            🟢 Ponerme Disponible
+        </div>
+        <div class="menu-item" onclick="cambiarEstado('inactivo')">
+            ⚪ Desactivar
+        </div>
+        <div class="menu-item" style="border:none; color:#ef4444" onclick="cerrarSesion()">
+            Cerrar Sesión
+        </div>
+    </div>
     
     <audio id="notificationSound" preload="auto">
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYHGGS57OihUBELTKXh8bllHAU2jdXvz3knBSh+zPLaizsIGGS56+mjTxEJS6Lg8bllHAU1i9Tvz3YoBSh+y/HbiDgIGGS56+mjUBAKS6Pg8rpnHAU1i9Tv" type="audio/wav">
@@ -380,23 +577,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
     <script src="shared/config.js"></script>
-    <script>
-        // Función para cambiar entre vistas (solo móvil)
-        function cambiarVista(vista) {
-            // Actualizar tabs
-            document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`[data-view="${vista}"]`).classList.add('active');
-            
-            // Mostrar vista
-            document.querySelectorAll('.view-pane').forEach(v => v.classList.remove('active'));
-            document.getElementById(`view-${vista}`).classList.add('active');
-            
-            // Redimensionar mapa si se abre
-            if (vista === 'mapa' && window.mapa) {
-                setTimeout(() => window.mapa.invalidateSize(), 100);
-            }
-        }
-    </script>
-    <script src="app.js"></script>
+    <script src="app-uber.js"></script>
 </body>
 </html>
