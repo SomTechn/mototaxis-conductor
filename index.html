@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cliente - Mototaxis</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="loader" class="loader-fullscreen">
+        <div class="loader"></div>
+        <p>Cargando...</p>
+    </div>
+    
+    <header class="header">
+        <div class="header-content">
+            <h1>🏍️ Mototaxis</h1>
+            <div class="header-actions">
+                <button id="btnPerfil" class="btn-icon">👤</button>
+                <button id="btnCerrarSesion" class="btn-icon">🚪</button>
+            </div>
+        </div>
+    </header>
+    
+    <div class="container">
+        <aside class="sidebar">
+            <div class="welcome">
+                <h2 id="welcomeMsg">Bienvenido</h2>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="btn btn-primary btn-block" id="btnCarreraDirecta">
+                    🚖 Nueva Carrera Directa
+                </button>
+                <button class="btn btn-success btn-block" id="btnCarreraColectiva">
+                    🚐 Carrera Colectiva
+                    <small style="display:block; font-size:0.75rem">30% descuento</small>
+                </button>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="activa">Carrera Activa</button>
+                <button class="tab-btn" data-tab="historial">Historial</button>
+            </div>
+            
+            <div class="tab-content">
+                <div id="tab-activa" class="tab-pane active">
+                    <div id="carreraActiva"></div>
+                </div>
+                <div id="tab-historial" class="tab-pane">
+                    <div id="historialCarreras"></div>
+                </div>
+            </div>
+        </aside>
+        
+        <main class="map-container">
+            <div id="map"></div>
+        </main>
+    </div>
+    
+    <!-- Modal Nueva Carrera -->
+    <div id="modalNuevaCarrera" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitulo">Nueva Carrera</h2>
+                <button class="btn-close" onclick="cerrarModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="formNuevaCarrera">
+                    <input type="hidden" id="tipoCarrera">
+                    
+                    <div class="form-group">
+                        <label class="form-label">Punto de Recogida</label>
+                        <input type="text" class="form-input" id="origenDir" placeholder="Click en mapa">
+                        <button type="button" class="btn btn-secondary btn-sm mt-1" id="btnSelOrigen">
+                            📍 Seleccionar en Mapa
+                        </button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Destino</label>
+                        <input type="text" class="form-input" id="destinoDir" placeholder="Click en mapa">
+                        <button type="button" class="btn btn-secondary btn-sm mt-1" id="btnSelDestino">
+                            🏁 Seleccionar en Mapa
+                        </button>
+                    </div>
+                    
+                    <div id="resumenCarrera" class="card hidden">
+                        <h3>Resumen</h3>
+                        <p><strong>Distancia:</strong> <span id="resDistancia">-</span></p>
+                        <p><strong>Tiempo estimado:</strong> <span id="resTiempo">-</span></p>
+                        <p><strong>Precio:</strong> <span id="resPrecio">-</span></p>
+                        <p id="descuentoMsg" class="hidden" style="color:var(--success)">
+                            <strong>¡Incluye 30% descuento!</strong>
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Notas (opcional)</label>
+                        <textarea class="form-textarea" id="notasCarrera" rows="2"></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block">Solicitar Carrera</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div id="toast-container"></div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
+    <script src="../shared/config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
