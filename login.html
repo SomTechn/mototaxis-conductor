@@ -4,48 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conductor - Mototaxis</title>
-    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="shared/styles.css">
     <style>
         body {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
         }
-        
         .login-container {
             background: white;
             padding: 2rem;
             border-radius: 1rem;
-            box-shadow: var(--shadow-lg);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
             width: 100%;
-            max-width: 400px;
+            max-width: 450px;
         }
-        
         .logo {
             text-align: center;
             margin-bottom: 2rem;
         }
-        
         .logo h1 {
             font-size: 2rem;
-            color: var(--primary);
+            color: #f59e0b;
             margin-bottom: 0.5rem;
         }
-        
         .logo p {
-            color: var(--gray-600);
+            color: #6b7280;
             font-size: 0.875rem;
         }
-        
         .tabs {
             display: flex;
             gap: 0.5rem;
             margin-bottom: 2rem;
-            border-bottom: 2px solid var(--gray-200);
+            border-bottom: 2px solid #e5e7eb;
         }
-        
         .tab {
             flex: 1;
             padding: 0.75rem;
@@ -53,29 +47,33 @@
             border: none;
             cursor: pointer;
             font-weight: 500;
-            color: var(--gray-600);
+            color: #6b7280;
             border-bottom: 2px solid transparent;
             margin-bottom: -2px;
+            transition: all 0.2s;
         }
-        
+        .tab:hover {
+            color: #f59e0b;
+        }
         .tab.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
+            color: #f59e0b;
+            border-bottom-color: #f59e0b;
         }
-        
         .tab-content {
             display: none;
         }
-        
         .tab-content.active {
             display: block;
         }
-        
         .form-footer {
             text-align: center;
             margin-top: 1rem;
             font-size: 0.875rem;
-            color: var(--gray-600);
+            color: #6b7280;
+        }
+        .form-footer a {
+            color: #f59e0b;
+            text-decoration: none;
         }
     </style>
 </head>
@@ -83,7 +81,7 @@
     <div class="login-container">
         <div class="logo">
             <h1>🏍️ Mototaxis</h1>
-            <p>Portal de Conductors</p>
+            <p>Portal de Conductores</p>
         </div>
         
         <div class="tabs">
@@ -91,61 +89,74 @@
             <button class="tab" data-tab="register">Registrarse</button>
         </div>
         
-        <!-- Tab Login -->
         <div id="tab-login" class="tab-content active">
             <form id="formLogin">
                 <div class="form-group">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="loginEmail" required>
+                    <input type="email" class="form-input" id="loginEmail" required placeholder="tu@email.com">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Contraseña</label>
-                    <input type="password" class="form-input" id="loginPassword" required>
+                    <input type="password" class="form-input" id="loginPassword" required placeholder="••••••••">
                 </div>
                 
-                <button type="submit" class="btn btn-primary" style="width: 100%">
+                <button type="submit" class="btn btn-primary" style="width: 100%; background:#f59e0b">
                     Iniciar Sesión
                 </button>
             </form>
         </div>
         
-        <!-- Tab Registro -->
         <div id="tab-register" class="tab-content">
             <form id="formRegister">
                 <div class="form-group">
                     <label class="form-label">Nombre Completo</label>
-                    <input type="text" class="form-input" id="regNombre" required>
+                    <input type="text" class="form-input" id="regNombre" required placeholder="Juan Pérez">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Teléfono</label>
-                    <input type="tel" class="form-input" id="regTelefono" required>
+                    <input type="tel" class="form-input" id="regTelefono" required placeholder="9999-9999">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Placa</label>
+                    <input type="text" class="form-input" id="regPlaca" required placeholder="ABC-123">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Modelo de Moto</label>
+                    <input type="text" class="form-input" id="regModelo" required placeholder="Honda CG 125">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Color</label>
+                    <input type="text" class="form-input" id="regColor" required placeholder="Rojo">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="regEmail" required>
+                    <input type="email" class="form-input" id="regEmail" required placeholder="tu@email.com">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Contraseña</label>
-                    <input type="password" class="form-input" id="regPassword" required minlength="6">
+                    <input type="password" class="form-input" id="regPassword" required minlength="6" placeholder="Mínimo 6 caracteres">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Confirmar Contraseña</label>
-                    <input type="password" class="form-input" id="regPasswordConfirm" required>
+                    <input type="password" class="form-input" id="regPasswordConfirm" required placeholder="Repite tu contraseña">
                 </div>
                 
-                <button type="submit" class="btn btn-primary" style="width: 100%">
+                <button type="submit" class="btn btn-primary" style="width: 100%; background:#f59e0b">
                     Crear Cuenta
                 </button>
             </form>
         </div>
         
         <div class="form-footer">
-            <p>¿Eres conductor? <a href="../cliente/login.html">Entra aquí</a></p>
+            <p>¿Eres cliente? <a href="../cliente/login.html">Entra aquí</a></p>
         </div>
     </div>
     
@@ -156,117 +167,85 @@
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    <script src="../shared/config.js"></script>
+    <script src="shared/config.js"></script>
     <script>
-        // Tabs
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
                 tab.classList.add('active');
                 document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
             });
         });
         
-        // Login
+        // LOGIN
         document.getElementById('formLogin').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
-            
             document.getElementById('loader').classList.remove('hidden');
             
             try {
-                const { data, error } = await window.supabase.auth.signInWithPassword({
-                    email,
-                    password
-                });
-                
+                const { data, error } = await window.supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
                 
-                // Verificar que sea conductor
-                const { data: perfil } = await window.supabase
-                    .from('perfiles')
-                    .select('rol')
-                    .eq('id', data.user.id)
-                    .single();
-                
-                if (perfil.rol !== 'conductor') {
+                const { data: perfil } = await window.supabase.from('perfiles').select('rol').eq('id', data.user.id).single();
+                if (perfil && perfil.rol !== 'conductor') {
+                    await window.supabase.auth.signOut();
                     throw new Error('Este usuario no es un conductor');
                 }
                 
-                UTILS.mostrarNotificacion('¡Bienvenido!', 'Iniciando sesión...', 'success');
-                setTimeout(() => window.location.href = 'index.html', 1000);
-                
+                window.location.href = 'index.html';
             } catch (error) {
-                console.error('Error:', error);
-                UTILS.mostrarNotificacion('Error', error.message, 'danger');
+                alert('Error: ' + error.message);
             } finally {
                 document.getElementById('loader').classList.add('hidden');
             }
         });
         
-        // Registro
+        // REGISTRO
         document.getElementById('formRegister').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const nombre = document.getElementById('regNombre').value;
             const telefono = document.getElementById('regTelefono').value;
+            const placa = document.getElementById('regPlaca').value;
+            const modelo = document.getElementById('regModelo').value;
+            const color = document.getElementById('regColor').value;
             const email = document.getElementById('regEmail').value;
             const password = document.getElementById('regPassword').value;
             const passwordConfirm = document.getElementById('regPasswordConfirm').value;
             
             if (password !== passwordConfirm) {
-                UTILS.mostrarNotificacion('Error', 'Las contraseñas no coinciden', 'danger');
+                alert('Las contraseñas no coinciden');
                 return;
             }
             
             document.getElementById('loader').classList.remove('hidden');
             
             try {
-                // Crear usuario en Auth
-                const { data: authData, error: authError } = await window.supabase.auth.signUp({
-                    email,
-                    password,
-                    options: {
-                        data: {
-                            nombre: nombre,
-                            rol: 'conductor'
-                        }
-                    }
-                });
-                
+                const { data: authData, error: authError } = await window.supabase.auth.signUp({ email, password });
                 if (authError) throw authError;
                 
-                // Crear perfil
-                const { error: perfilError } = await window.supabase
-                    .from('perfiles')
-                    .insert({
-                        id: authData.user.id,
-                        nombre: nombre,
-                        telefono: telefono,
-                        rol: 'conductor'
-                    });
+                await new Promise(r => setTimeout(r, 1500));
                 
-                if (perfilError) throw perfilError;
+                const { error: perfilError } = await window.supabase.from('perfiles').insert({
+                    id: authData.user.id, nombre, telefono, rol: 'conductor', activo: true
+                });
                 
-                // Crear registro de conductor
-                const { error: conductorError } = await window.supabase
-                    .from('conductors')
-                    .insert({
-                        perfil_id: authData.user.id
-                    });
+                if (perfilError && perfilError.code !== '23505') throw perfilError;
                 
-                if (conductorError) throw conductorError;
+                const { error: conductorError } = await window.supabase.from('conductores').insert({
+                    perfil_id: authData.user.id, placa, modelo_moto: modelo, color, estado: 'inactivo'
+                });
                 
-                UTILS.mostrarNotificacion('¡Éxito!', 'Cuenta creada. Redirigiendo...', 'success');
-                setTimeout(() => window.location.href = 'index.html', 2000);
+                if (conductorError && conductorError.code !== '23505') throw conductorError;
                 
+                alert('Cuenta creada exitosamente');
+                
+                await window.supabase.auth.signInWithPassword({ email, password });
+                window.location.href = 'index.html';
             } catch (error) {
-                console.error('Error:', error);
-                UTILS.mostrarNotificacion('Error', error.message, 'danger');
+                alert('Error: ' + error.message);
             } finally {
                 document.getElementById('loader').classList.add('hidden');
             }
