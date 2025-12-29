@@ -3,8 +3,8 @@
 // ============================================
 
 const SUPABASE_CONFIG = {
-    url: 'TU_SUPABASE_URL',
-    anonKey: 'TU_SUPABASE_ANON_KEY'
+    url: 'https://brtiamwcdlwfyyprlevw.supabase.co',
+    anonKey: 'sb_publishable_g8ETwpbbpEFR64zacmx_cw_L3Yxg7Zt'
 };
 
 // Inicializar Supabase
