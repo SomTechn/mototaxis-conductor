@@ -9,6 +9,7 @@ let gpsInterval = null;
 let timers = {};
 let rutaActualLayer = null;
 let origenMarker = null, destinoMarker = null;
+let marcadoresColectivas = [];
 
 // ============================================
 // INICIALIZACIÓN
@@ -72,16 +73,17 @@ async function init() {
         conductorId = conductor.id;
         conductorData = conductor;
         console.log('✅ Conductor ID:', conductorId);
+        console.log('Estado inicial:', conductor.estado);
         
         // Actualizar UI según estado
         actualizarUIEstado(conductor.estado);
         
         // Inicializar
-        inicializarMapa();
-        inicializarGPS();
+        await inicializarMapa();
+        await inicializarGPS();
         inicializarTabs();
-        cargarCarreras();
-        cargarEstadisticas();
+        await cargarCarreras();
+        await cargarEstadisticas();
         suscribirseACambios();
         
         console.log('=== APP CONDUCTOR INICIADA ===');
@@ -99,9 +101,20 @@ async function init() {
 // ============================================
 
 async function inicializarMapa() {
-    mapa = L.map('map').setView([14.0723, -87.1921], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapa);
-    console.log('✅ Mapa inicializado');
+    try {
+        mapa = L.map('map').setView([14.0723, -87.1921], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap',
+            maxZoom: 18
+        }).addTo(mapa);
+        
+        // Forzar redimensión del mapa
+        setTimeout(() => mapa.invalidateSize(), 500);
+        
+        console.log('✅ Mapa inicializado');
+    } catch (error) {
+        console.error('Error inicializando mapa:', error);
+    }
 }
 
 // ============================================
@@ -113,6 +126,8 @@ async function inicializarGPS() {
         alert('Tu navegador no soporta GPS');
         return;
     }
+    
+    console.log('Solicitando ubicación GPS...');
     
     // Obtener ubicación inicial
     navigator.geolocation.getCurrentPosition(
@@ -133,22 +148,32 @@ async function inicializarGPS() {
                     html: '🛺',
                     className: 'emoji-marker',
                     iconSize: [40, 40]
-                })
+                }),
+                zIndexOffset: 1000
             }).addTo(mapa).bindPopup('Tu ubicación');
             
             // Iniciar actualización continua
             iniciarActualizacionGPS();
+            
+            // Guardar ubicación inicial
+            guardarUbicacionEnBD();
         },
         (error) => {
             console.error('Error GPS:', error);
-            alert('No se pudo obtener tu ubicación. Por favor activa el GPS.');
+            alert('No se pudo obtener tu ubicación. Activa el GPS y recarga.');
         },
-        { enableHighAccuracy: true }
+        { 
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+        }
     );
 }
 
 function iniciarActualizacionGPS() {
     if (gpsInterval) clearInterval(gpsInterval);
+    
+    console.log('Iniciando actualización GPS cada 5 segundos...');
     
     gpsInterval = setInterval(async () => {
         navigator.geolocation.getCurrentPosition(
@@ -163,19 +188,19 @@ function iniciarActualizacionGPS() {
                     miMarker.setLatLng([miUbicacion.lat, miUbicacion.lng]);
                 }
                 
-                // Guardar en BD si está disponible
+                // Guardar en BD si está disponible o en carrera
                 if (conductorData.estado === 'disponible' || conductorData.estado === 'en_carrera') {
                     await guardarUbicacionEnBD();
                 }
             },
-            (error) => console.warn('Error actualizando GPS:', error),
+            (error) => console.warn('Error actualizando GPS:', error.message),
             { enableHighAccuracy: true, maximumAge: 0 }
         );
-    }, 5000); // Cada 5 segundos
+    }, 5000);
 }
 
 async function guardarUbicacionEnBD() {
-    if (!miUbicacion) return;
+    if (!miUbicacion || !conductorId) return;
     
     try {
         await window.supabase
@@ -186,6 +211,8 @@ async function guardarUbicacionEnBD() {
                 ultima_actualizacion: new Date().toISOString()
             })
             .eq('id', conductorId);
+        
+        console.log('Ubicación guardada:', miUbicacion);
     } catch (error) {
         console.warn('Error guardando ubicación:', error);
     }
@@ -209,12 +236,20 @@ async function cambiarEstado(nuevoEstado) {
         conductorData.estado = nuevoEstado;
         actualizarUIEstado(nuevoEstado);
         
+        console.log('Estado cambiado a:', nuevoEstado);
+        
         mostrarNotificacion(
-            nuevoEstado === 'disponible' ? '¡Estás disponible para recibir carreras!' : 'Estado cambiado a inactivo',
+            nuevoEstado === 'disponible' ? '¡Estás disponible!' : 'Estado: Inactivo',
             nuevoEstado === 'disponible' ? 'success' : 'info'
         );
         
+        // Recargar carreras si cambia a disponible
+        if (nuevoEstado === 'disponible') {
+            await cargarCarreras();
+        }
+        
     } catch (error) {
+        console.error('Error:', error);
         alert('Error: ' + error.message);
     } finally {
         document.getElementById('loader').classList.add('hidden');
@@ -228,7 +263,7 @@ function actualizarUIEstado(estado) {
     btnDisponible.classList.remove('disponible');
     btnInactivo.classList.remove('inactivo');
     
-    if (estado === 'disponible') {
+    if (estado === 'disponible' || estado === 'en_carrera') {
         btnDisponible.classList.add('disponible');
     } else {
         btnInactivo.classList.add('inactivo');
@@ -236,66 +271,77 @@ function actualizarUIEstado(estado) {
 }
 
 // ============================================
-// CARRERAS DIRECTAS
+// CARRERAS
 // ============================================
 
 async function cargarCarreras() {
+    console.log('Cargando carreras...');
     await cargarCarrerasDirectas();
     await cargarCarrerasColectivas();
 }
 
 async function cargarCarrerasDirectas() {
     try {
-        // Carreras asignadas a mí
+        console.log('Buscando carreras directas para conductor:', conductorId);
+        
+        // Carreras asignadas a mí o en curso
         const { data, error } = await window.supabase
             .from('carreras')
             .select('*')
             .eq('conductor_id', conductorId)
             .in('estado', ['asignada', 'aceptada', 'en_camino', 'en_curso'])
-            .order('fecha_solicitud', { ascending: true });
+            .order('fecha_solicitud', { ascending: false });
         
-        if (error) throw error;
+        if (error) {
+            console.error('Error SQL:', error);
+            throw error;
+        }
+        
+        console.log('Carreras encontradas:', data ? data.length : 0);
         
         if (!data || data.length === 0) {
-            document.getElementById('carrerasDirectas').innerHTML = '<p style="text-align:center;color:#6b7280">No hay carreras directas</p>';
+            document.getElementById('carrerasDirectas').innerHTML = '<p style="text-align:center;color:#6b7280;padding:1rem">No hay carreras directas asignadas</p>';
             return;
         }
         
         let html = '';
         data.forEach(carrera => {
+            console.log('Renderizando carrera:', carrera.id, carrera.estado);
             html += renderCarreraDirecta(carrera);
         });
         
         document.getElementById('carrerasDirectas').innerHTML = html;
         
-        // Mostrar en mapa la primera carrera
-        if (data.length > 0) {
+        // Mostrar la primera en el mapa
+        if (data.length > 0 && miUbicacion) {
             mostrarCarreraEnMapa(data[0]);
         }
         
     } catch (error) {
-        console.error('Error cargando carreras:', error);
+        console.error('Error cargando carreras directas:', error);
+        document.getElementById('carrerasDirectas').innerHTML = '<p style="text-align:center;color:#ef4444;padding:1rem">Error cargando carreras</p>';
     }
 }
 
 function renderCarreraDirecta(carrera) {
     const estados = {
-        'asignada': { badge: 'warning', texto: 'Nueva Carrera' },
-        'aceptada': { badge: 'success', texto: 'Aceptada' },
-        'en_camino': { badge: 'info', texto: 'En Camino' },
-        'en_curso': { badge: 'success', texto: 'En Curso' }
+        'asignada': { badge: 'warning', texto: '🔔 Nueva' },
+        'aceptada': { badge: 'success', texto: '✅ Aceptada' },
+        'en_camino': { badge: 'info', texto: '🚗 En Camino' },
+        'en_curso': { badge: 'success', texto: '🏁 En Curso' }
     };
     
     const estado = estados[carrera.estado] || { badge: 'info', texto: carrera.estado };
     
     let html = `
         <div class="card card-carrera">
-            <h4>${carrera.numero_carrera || 'Carrera'} 
+            <h4>#${carrera.numero_carrera || carrera.id.slice(0,8)} 
                 <span class="badge badge-${estado.badge}">${estado.texto}</span>
             </h4>
             <p><strong>📍 Origen:</strong> ${carrera.origen_direccion}</p>
             <p><strong>🏁 Destino:</strong> ${carrera.destino_direccion}</p>
             <p><strong>💵 Tarifa:</strong> L ${parseFloat(carrera.precio).toFixed(2)}</p>
+            <p><strong>📏 Distancia:</strong> ${carrera.distancia_km ? carrera.distancia_km.toFixed(2) + ' km' : 'N/A'}</p>
     `;
     
     if (carrera.estado === 'asignada') {
@@ -308,11 +354,11 @@ function renderCarreraDirecta(carrera) {
         
         html += `
             <div class="timer" id="${timerId}">${timers[carrera.id]}s</div>
-            <div style="display:flex;gap:0.5rem">
-                <button class="btn btn-success" style="flex:1" onclick="aceptarCarrera('${carrera.id}')">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+                <button class="btn btn-success" onclick="aceptarCarrera('${carrera.id}')">
                     ✅ Aceptar
                 </button>
-                <button class="btn btn-danger" style="flex:1" onclick="rechazarCarrera('${carrera.id}')">
+                <button class="btn btn-danger" onclick="rechazarCarrera('${carrera.id}')">
                     ❌ Rechazar
                 </button>
             </div>
@@ -343,16 +389,20 @@ function renderCarreraDirecta(carrera) {
 
 function iniciarTimer(carreraId) {
     const interval = setInterval(() => {
-        if (timers[carreraId]) {
+        if (timers[carreraId] !== undefined) {
             timers[carreraId]--;
             const timerEl = document.getElementById(`timer-${carreraId}`);
             if (timerEl) {
                 timerEl.textContent = timers[carreraId] + 's';
+                
+                if (timers[carreraId] <= 10) {
+                    timerEl.style.animation = 'pulse 1s infinite';
+                }
             }
             
             if (timers[carreraId] <= 0) {
                 clearInterval(interval);
-                rechazarCarrera(carreraId, true); // Auto-rechazar
+                rechazarCarrera(carreraId, true);
             }
         } else {
             clearInterval(interval);
@@ -361,9 +411,14 @@ function iniciarTimer(carreraId) {
 }
 
 async function mostrarCarreraEnMapa(carrera) {
-    if (!miUbicacion) return;
+    if (!miUbicacion) {
+        console.warn('No hay ubicación GPS aún');
+        return;
+    }
     
     try {
+        console.log('Mostrando carrera en mapa:', carrera.id);
+        
         // Limpiar rutas anteriores
         if (rutaActualLayer) mapa.removeLayer(rutaActualLayer);
         if (origenMarker) mapa.removeLayer(origenMarker);
@@ -371,20 +426,20 @@ async function mostrarCarreraEnMapa(carrera) {
         
         // Marcadores
         origenMarker = L.marker([carrera.origen_lat, carrera.origen_lng], {
-            icon: L.divIcon({ html: '📍', className: 'emoji-marker' })
-        }).addTo(mapa).bindPopup('Origen');
+            icon: L.divIcon({ html: '📍', className: 'emoji-marker', iconSize: [30, 30] })
+        }).addTo(mapa).bindPopup('<b>Origen</b><br>' + carrera.origen_direccion);
         
         destinoMarker = L.marker([carrera.destino_lat, carrera.destino_lng], {
-            icon: L.divIcon({ html: '🏁', className: 'emoji-marker' })
-        }).addTo(mapa).bindPopup('Destino');
+            icon: L.divIcon({ html: '🏁', className: 'emoji-marker', iconSize: [30, 30] })
+        }).addTo(mapa).bindPopup('<b>Destino</b><br>' + carrera.destino_direccion);
         
-        // Ruta 1: Mi ubicación → Origen
+        // Ruta 1: Mi ubicación → Origen (línea punteada roja)
         const ruta1 = await calcularRutaOSRM(
             miUbicacion.lng, miUbicacion.lat,
             carrera.origen_lng, carrera.origen_lat
         );
         
-        // Ruta 2: Origen → Destino
+        // Ruta 2: Origen → Destino (línea sólida naranja)
         const ruta2 = await calcularRutaOSRM(
             carrera.origen_lng, carrera.origen_lat,
             carrera.destino_lng, carrera.destino_lat
@@ -394,15 +449,30 @@ async function mostrarCarreraEnMapa(carrera) {
         rutaActualLayer = L.layerGroup();
         
         if (ruta1.geometry) {
+            const km1 = (ruta1.distance / 1000).toFixed(2);
+            const min1 = Math.round(ruta1.duration / 60 * 1.3); // Con tráfico
+            
             L.geoJSON(ruta1.geometry, {
-                style: { color: '#ef4444', weight: 4, dashArray: '10, 10' }
-            }).addTo(rutaActualLayer).bindPopup(`Distancia: ${(ruta1.distance/1000).toFixed(2)} km<br>Tiempo: ${Math.round(ruta1.duration/60)} min`);
+                style: { 
+                    color: '#ef4444', 
+                    weight: 4, 
+                    dashArray: '10, 10',
+                    opacity: 0.8
+                }
+            }).addTo(rutaActualLayer).bindPopup(`<b>Hacia el origen</b><br>📏 ${km1} km<br>⏱️ ${min1} min`);
         }
         
         if (ruta2.geometry) {
+            const km2 = (ruta2.distance / 1000).toFixed(2);
+            const min2 = Math.round(ruta2.duration / 60 * 1.3);
+            
             L.geoJSON(ruta2.geometry, {
-                style: { color: '#f59e0b', weight: 4 }
-            }).addTo(rutaActualLayer).bindPopup(`Distancia: ${(ruta2.distance/1000).toFixed(2)} km<br>Tiempo: ${Math.round(ruta2.duration/60)} min`);
+                style: { 
+                    color: '#f59e0b', 
+                    weight: 4,
+                    opacity: 0.8
+                }
+            }).addTo(rutaActualLayer).bindPopup(`<b>Origen → Destino</b><br>📏 ${km2} km<br>⏱️ ${min2} min`);
         }
         
         rutaActualLayer.addTo(mapa);
@@ -418,7 +488,7 @@ async function mostrarCarreraEnMapa(carrera) {
         console.log('✅ Carrera mostrada en mapa');
         
     } catch (error) {
-        console.error('Error mostrando carrera:', error);
+        console.error('Error mostrando carrera en mapa:', error);
     }
 }
 
@@ -439,6 +509,126 @@ async function calcularRutaOSRM(lng1, lat1, lng2, lat2) {
     } catch (error) {
         console.error('Error OSRM:', error);
         return {};
+    }
+}
+
+// ============================================
+// CARRERAS COLECTIVAS
+// ============================================
+
+async function cargarCarrerasColectivas() {
+    try {
+        console.log('Buscando carreras colectivas...');
+        
+        // Carreras colectivas sin conductor o en búsqueda
+        const { data, error } = await window.supabase
+            .from('carreras')
+            .select('*')
+            .eq('tipo', 'colectivo')
+            .in('estado', ['solicitada', 'buscando'])
+            .is('conductor_id', null)
+            .order('fecha_solicitud', { ascending: true })
+            .limit(20);
+        
+        if (error) throw error;
+        
+        console.log('Carreras colectivas encontradas:', data ? data.length : 0);
+        
+        if (!data || data.length === 0) {
+            document.getElementById('carrerasColectivas').innerHTML = '<p style="text-align:center;color:#6b7280;padding:1rem">No hay carreras colectivas disponibles</p>';
+            limpiarMarcadoresColectivas();
+            return;
+        }
+        
+        let html = '';
+        data.forEach(carrera => {
+            html += renderCarreraColectiva(carrera);
+        });
+        
+        document.getElementById('carrerasColectivas').innerHTML = html;
+        
+        // Mostrar en mapa
+        mostrarColectivasEnMapa(data);
+        
+    } catch (error) {
+        console.error('Error cargando colectivas:', error);
+        document.getElementById('carrerasColectivas').innerHTML = '<p style="text-align:center;color:#ef4444;padding:1rem">Error cargando carreras</p>';
+    }
+}
+
+function renderCarreraColectiva(carrera) {
+    return `
+        <div class="card card-colectiva">
+            <h4>🚐 #${carrera.numero_carrera || carrera.id.slice(0,8)}</h4>
+            <p><strong>📍 Origen:</strong> ${carrera.origen_direccion}</p>
+            <p><strong>🏁 Destino:</strong> ${carrera.destino_direccion}</p>
+            <p><strong>💵 Tarifa:</strong> L ${parseFloat(carrera.precio).toFixed(2)}</p>
+            <p style="color:#10b981;font-weight:bold">✨ Incluye 30% descuento</p>
+            <button class="btn btn-success btn-block" onclick="tomarColectiva('${carrera.id}')">
+                Tomar Carrera
+            </button>
+        </div>
+    `;
+}
+
+function limpiarMarcadoresColectivas() {
+    marcadoresColectivas.forEach(m => mapa.removeLayer(m));
+    marcadoresColectivas = [];
+}
+
+function mostrarColectivasEnMapa(carreras) {
+    // Limpiar marcadores anteriores
+    limpiarMarcadoresColectivas();
+    
+    // Agregar nuevos marcadores
+    carreras.forEach(c => {
+        const marker = L.marker([c.origen_lat, c.origen_lng], {
+            icon: L.divIcon({ 
+                html: '🚐', 
+                className: 'emoji-marker',
+                iconSize: [30, 30]
+            })
+        }).addTo(mapa).bindPopup(`
+            <b>🚐 Colectiva</b><br>
+            ${c.origen_direccion}<br>
+            <b>L ${parseFloat(c.precio).toFixed(2)}</b>
+        `);
+        
+        marcadoresColectivas.push(marker);
+    });
+    
+    console.log(`✅ ${carreras.length} colectivas mostradas en mapa`);
+}
+
+async function tomarColectiva(id) {
+    try {
+        document.getElementById('loader').classList.remove('hidden');
+        
+        // Asignarme como conductor
+        const { error } = await window.supabase
+            .from('carreras')
+            .update({ 
+                conductor_id: conductorId,
+                estado: 'asignada'
+            })
+            .eq('id', id)
+            .is('conductor_id', null); // Solo si no tiene conductor aún
+        
+        if (error) throw error;
+        
+        mostrarNotificacion('¡Carrera colectiva tomada!', 'success');
+        reproducirSonido();
+        
+        // Cambiar a pestaña directas y recargar
+        document.querySelector('[data-tab="directas"]').click();
+        await cargarCarreras();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error: Esta carrera ya fue tomada por otro conductor');
+        await cargarCarreras();
+    } finally {
+        document.getElementById('loader').classList.add('hidden');
     }
 }
 
@@ -464,9 +654,10 @@ async function aceptarCarrera(id) {
         await cambiarEstado('en_carrera');
         mostrarNotificacion('¡Carrera aceptada!', 'success');
         reproducirSonido();
-        cargarCarreras();
+        await cargarCarreras();
         
     } catch (error) {
+        console.error('Error:', error);
         alert('Error: ' + error.message);
     } finally {
         document.getElementById('loader').classList.add('hidden');
@@ -486,15 +677,17 @@ async function rechazarCarrera(id, autoRechazo = false) {
         if (error) throw error;
         
         delete timers[id];
+        
         if (autoRechazo) {
-            mostrarNotificacion('Carrera expirada por tiempo', 'warning');
+            mostrarNotificacion('Carrera expirada (60s)', 'warning');
         } else {
             mostrarNotificacion('Carrera rechazada', 'info');
         }
-        cargarCarreras();
+        
+        await cargarCarreras();
         
     } catch (error) {
-        alert('Error: ' + error.message);
+        console.error('Error:', error);
     }
 }
 
@@ -502,13 +695,16 @@ async function irAlOrigen(id) {
     try {
         const { error } = await window.supabase
             .from('carreras')
-            .update({ estado: 'en_camino', fecha_inicio_viaje: new Date().toISOString() })
+            .update({ 
+                estado: 'en_camino',
+                fecha_inicio_viaje: new Date().toISOString()
+            })
             .eq('id', id);
         
         if (error) throw error;
         
-        mostrarNotificacion('En camino al origen', 'info');
-        cargarCarreras();
+        mostrarNotificacion('En camino al origen 🚗', 'info');
+        await cargarCarreras();
         
     } catch (error) {
         alert('Error: ' + error.message);
@@ -519,13 +715,16 @@ async function clienteAbordado(id) {
     try {
         const { error } = await window.supabase
             .from('carreras')
-            .update({ estado: 'en_curso', fecha_inicio: new Date().toISOString() })
+            .update({ 
+                estado: 'en_curso',
+                fecha_inicio: new Date().toISOString()
+            })
             .eq('id', id);
         
         if (error) throw error;
         
-        mostrarNotificacion('Cliente abordado. ¡Buen viaje!', 'success');
-        cargarCarreras();
+        mostrarNotificacion('Cliente abordado 👤', 'success');
+        await cargarCarreras();
         
     } catch (error) {
         alert('Error: ' + error.message);
@@ -549,7 +748,7 @@ async function completarCarrera(id) {
         if (error) throw error;
         
         await cambiarEstado('disponible');
-        mostrarNotificacion('¡Carrera completada!', 'success');
+        mostrarNotificacion('¡Carrera completada! 🎉', 'success');
         reproducirSonido();
         
         // Limpiar mapa
@@ -557,8 +756,8 @@ async function completarCarrera(id) {
         if (origenMarker) mapa.removeLayer(origenMarker);
         if (destinoMarker) mapa.removeLayer(destinoMarker);
         
-        cargarCarreras();
-        cargarEstadisticas();
+        await cargarCarreras();
+        await cargarEstadisticas();
         
     } catch (error) {
         alert('Error: ' + error.message);
@@ -568,92 +767,30 @@ async function completarCarrera(id) {
 }
 
 // ============================================
-// CARRERAS COLECTIVAS
-// ============================================
-
-async function cargarCarrerasColectivas() {
-    try {
-        const { data, error } = await window.supabase
-            .from('carreras')
-            .select('*')
-            .eq('tipo', 'colectivo')
-            .in('estado', ['solicitada', 'buscando'])
-            .order('fecha_solicitud', { ascending: true })
-            .limit(10);
-        
-        if (error) throw error;
-        
-        if (!data || data.length === 0) {
-            document.getElementById('carrerasColectivas').innerHTML = '<p style="text-align:center;color:#6b7280">No hay carreras colectivas disponibles</p>';
-            return;
-        }
-        
-        let html = '';
-        data.forEach(carrera => {
-            html += renderCarreraColectiva(carrera);
-        });
-        
-        document.getElementById('carrerasColectivas').innerHTML = html;
-        
-        // Mostrar en mapa
-        mostrarColectivasEnMapa(data);
-        
-    } catch (error) {
-        console.error('Error:', error);
-    }
-}
-
-function renderCarreraColectiva(carrera) {
-    return `
-        <div class="card card-colectiva">
-            <h4>🚐 ${carrera.numero_carrera || 'Colectiva'}</h4>
-            <p><strong>Origen:</strong> ${carrera.origen_direccion}</p>
-            <p><strong>Destino:</strong> ${carrera.destino_direccion}</p>
-            <p><strong>Tarifa:</strong> L ${parseFloat(carrera.precio).toFixed(2)}</p>
-            <button class="btn btn-success btn-block" onclick="tomarColectiva('${carrera.id}')">
-                Tomar Carrera
-            </button>
-        </div>
-    `;
-}
-
-function mostrarColectivasEnMapa(carreras) {
-    // Limpiar marcadores anteriores de colectivas
-    // y agregar nuevos
-    carreras.forEach(c => {
-        L.marker([c.origen_lat, c.origen_lng], {
-            icon: L.divIcon({ html: '🚐', className: 'emoji-marker' })
-        }).addTo(mapa).bindPopup(`Colectiva<br>${c.origen_direccion}`);
-    });
-}
-
-async function tomarColectiva(id) {
-    // Similar a aceptar carrera directa
-    await aceptarCarrera(id);
-}
-
-// ============================================
 // ESTADÍSTICAS
 // ============================================
 
 async function cargarEstadisticas() {
     try {
-        const hoy = new Date().toISOString().split('T')[0];
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
         
         const { data, error } = await window.supabase
             .from('carreras')
             .select('precio')
             .eq('conductor_id', conductorId)
             .eq('estado', 'completada')
-            .gte('fecha_completado', hoy);
+            .gte('fecha_completado', hoy.toISOString());
         
         if (error) throw error;
         
         const totalCarreras = data ? data.length : 0;
-        const totalGanancias = data ? data.reduce((sum, c) => sum + parseFloat(c.precio), 0) : 0;
+        const totalGanancias = data ? data.reduce((sum, c) => sum + parseFloat(c.precio || 0), 0) : 0;
         
         document.getElementById('statCarreras').textContent = totalCarreras;
         document.getElementById('statGanancias').textContent = 'L ' + totalGanancias.toFixed(2);
+        
+        console.log('Estadísticas:', { totalCarreras, totalGanancias });
         
     } catch (error) {
         console.error('Error cargando estadísticas:', error);
@@ -665,25 +802,37 @@ async function cargarEstadisticas() {
 // ============================================
 
 function suscribirseACambios() {
+    console.log('Suscribiéndose a cambios...');
+    
     window.supabase
-        .channel('conductor-carreras')
+        .channel('conductor-changes')
         .on('postgres_changes', {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
-            table: 'carreras',
-            filter: `conductor_id=eq.${conductorId}`
-        }, (payload) => {
-            mostrarNotificacion('¡Nueva carrera asignada!', 'success');
-            reproducirSonido();
-            cargarCarreras();
-        })
-        .on('postgres_changes', {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'carreras',
-            filter: `conductor_id=eq.${conductorId}`
-        }, (payload) => {
-            cargarCarreras();
+            table: 'carreras'
+        }, async (payload) => {
+            console.log('Cambio detectado:', payload);
+            
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const carrera = payload.new;
+                
+                // Nueva carrera asignada a mí
+                if (carrera.conductor_id === conductorId && carrera.estado === 'asignada') {
+                    mostrarNotificacion('¡Nueva carrera asignada!', 'success');
+                    reproducirSonido();
+                    await cargarCarreras();
+                }
+                
+                // Cambio en mis carreras
+                if (carrera.conductor_id === conductorId) {
+                    await cargarCarreras();
+                }
+                
+                // Nueva colectiva disponible
+                if (carrera.tipo === 'colectivo' && !carrera.conductor_id) {
+                    await cargarCarrerasColectivas();
+                }
+            }
         })
         .subscribe();
 }
@@ -708,11 +857,15 @@ function mostrarNotificacion(mensaje, tipo) {
     notif.className = 'notification';
     notif.textContent = mensaje;
     document.body.appendChild(notif);
-    setTimeout(() => notif.remove(), 3000);
+    setTimeout(() => notif.remove(), 4000);
 }
 
 function reproducirSonido() {
-    document.getElementById('notificationSound').play().catch(() => {});
+    try {
+        document.getElementById('notificationSound').play();
+    } catch (e) {
+        console.warn('No se pudo reproducir sonido:', e);
+    }
 }
 
 async function cerrarSesion() {
@@ -724,4 +877,12 @@ async function cerrarSesion() {
     }
 }
 
+// Iniciar cuando la página cargue
 window.addEventListener('load', init);
+
+// Manejar cambio de orientación en móviles
+window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+        if (mapa) mapa.invalidateSize();
+    }, 200);
+});
