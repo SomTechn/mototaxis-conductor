@@ -148,7 +148,7 @@ function inicializarGPS() {
             };
             
             console.log('✅ GPS activado:', miUbicacion);
-            mapa.setView([miUbicacion.lat, miUbicacion.lng], 14);
+            mapa.setView([miUbicacion.lat, miUbicacion.lng], 15);
             
             // Crear marcador rotable
             crearMarcadorRotable();
@@ -253,9 +253,9 @@ function iniciarActualizacionGPS() {
 function centrarMapaEnConductor() {
     if (!miUbicacion || !mapa) return;
     
-    // Zoom 14 = ~5km de radio visible
+    // Zoom 15 = ~2-3km de radio visible (más cercano)
     // Smooth pan hacia la ubicación del conductor
-    mapa.setView([miUbicacion.lat, miUbicacion.lng], 14, {
+    mapa.setView([miUbicacion.lat, miUbicacion.lng], 15, {
         animate: true,
         duration: 0.5
     });
@@ -460,28 +460,50 @@ async function cargarTodasCarreras() {
 async function cargarCarrerasDisponibles() {
     try {
         console.log('=== CARGANDO CARRERAS DISPONIBLES ===');
+        console.log('Conductor ID:', conductorId);
         
-        const { data: asignadas } = await window.supabase
+        // Query 1: Asignadas
+        const { data: asignadas, error: errorAsignadas } = await window.supabase
             .from('carreras')
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .eq('conductor_id', conductorId)
             .eq('estado', 'asignada');
         
-        const { data: directas } = await window.supabase
+        if (errorAsignadas) {
+            console.error('Error asignadas:', errorAsignadas);
+        } else {
+            console.log('Asignadas:', asignadas?.length || 0);
+        }
+        
+        // Query 2: Directas
+        const { data: directas, error: errorDirectas } = await window.supabase
             .from('carreras')
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .eq('tipo', 'directo')
             .in('estado', ['solicitada', 'buscando'])
             .is('conductor_id', null)
             .limit(10);
         
-        const { data: colectivas } = await window.supabase
+        if (errorDirectas) {
+            console.error('Error directas:', errorDirectas);
+        } else {
+            console.log('Directas:', directas?.length || 0);
+        }
+        
+        // Query 3: Colectivas
+        const { data: colectivas, error: errorColectivas } = await window.supabase
             .from('carreras')
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .eq('tipo', 'colectivo')
             .in('estado', ['solicitada', 'buscando'])
             .is('conductor_id', null)
             .limit(20);
+        
+        if (errorColectivas) {
+            console.error('Error colectivas:', errorColectivas);
+        } else {
+            console.log('Colectivas:', colectivas?.length || 0);
+        }
         
         const todas = [
             ...(asignadas || []), 
@@ -489,11 +511,16 @@ async function cargarCarrerasDisponibles() {
             ...(colectivas || [])
         ];
         
+        console.log('Total carreras:', todas.length);
+        
         if (todas.length === 0) {
             document.getElementById('carrerasDisponibles').innerHTML = `
                 <div class="empty-state">
                     <div class="empty-icon">🏍️</div>
                     <div class="empty-text">No hay carreras disponibles</div>
+                    <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.5rem">
+                        Las carreras aparecerán aquí automáticamente
+                    </p>
                 </div>
             `;
             document.getElementById('badgeDisponibles').style.display = 'none';
@@ -501,6 +528,7 @@ async function cargarCarrerasDisponibles() {
             return;
         }
         
+        console.log('Renderizando', todas.length, 'carreras...');
         let html = '';
         todas.forEach(carrera => {
             html += renderCarreraDisponible(carrera);
@@ -510,15 +538,32 @@ async function cargarCarrerasDisponibles() {
         document.getElementById('badgeDisponibles').textContent = todas.length;
         document.getElementById('badgeDisponibles').style.display = 'block';
         
+        console.log('Calculando distancias...');
         // Calcular distancias CON AWAIT para que funcione en móvil
         for (const carrera of todas) {
             await calcularDistanciasCard(carrera);
         }
         
-        // NO dibujar en mapa - solo al aceptar la carrera
+        console.log('✅ Carreras disponibles listas');
         
     } catch (error) {
-        console.error('Error cargando disponibles:', error);
+        console.error('=== ERROR EN cargarCarrerasDisponibles ===');
+        console.error(error);
+        console.error('Stack:', error.stack);
+        
+        // Mostrar error al usuario
+        document.getElementById('carrerasDisponibles').innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">⚠️</div>
+                <div class="empty-text">Error cargando carreras</div>
+                <p style="font-size:0.75rem;color:#ef4444;margin-top:0.5rem">
+                    ${error.message}
+                </p>
+                <button onclick="cargarCarrerasDisponibles()" class="btn btn-primary" style="margin-top:1rem">
+                    Reintentar
+                </button>
+            </div>
+        `;
     }
 }
 
@@ -667,12 +712,12 @@ async function cargarCarrerasActivas() {
         
         const { data, error } = await window.supabase
             .from('carreras')
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .eq('conductor_id', conductorId)
             .in('estado', ['aceptada', 'en_curso']);
         
         if (error) {
-            console.error('Error:', error);
+            console.error('Error cargando activas:', error);
             throw error;
         }
         
@@ -709,6 +754,12 @@ async function cargarCarrerasActivas() {
         
     } catch (error) {
         console.error('Error cargando activas:', error);
+        document.getElementById('carrerasActivas').innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">⚠️</div>
+                <div class="empty-text">Error cargando carreras activas</div>
+            </div>
+        `;
     }
 }
 
@@ -887,7 +938,7 @@ async function mostrarCarreraActivaEnMapa(carrera) {
         ]);
         mapa.fitBounds(bounds, { 
             padding: [50, 50],
-            maxZoom: 14 // No alejar más de 5km de radio
+            maxZoom: 15 // Más cercano, ~2-3km de radio
         });
         
     } catch (error) {
@@ -1043,7 +1094,7 @@ async function tomarCarrera(id) {
             })
             .eq('id', id)
             .is('conductor_id', null)
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .single();
         
         if (error) throw error;
@@ -1060,7 +1111,8 @@ async function tomarCarrera(id) {
         cambiarTab('activas');
         
     } catch (error) {
-        alert('Esta carrera ya fue tomada');
+        console.error('Error tomando carrera:', error);
+        alert('Esta carrera ya fue tomada o hubo un error');
         await cargarTodasCarreras();
     } finally {
         document.getElementById('loader').classList.add('hidden');
@@ -1078,7 +1130,7 @@ async function pasajeroRecogido(id) {
                 fecha_inicio: new Date().toISOString()
             })
             .eq('id', id)
-            .select('*, clientes(nombre, telefono)')
+            .select('*, clientes!inner(nombre, telefono)')
             .single();
         
         if (error) throw error;
@@ -1092,6 +1144,7 @@ async function pasajeroRecogido(id) {
         await cargarTodasCarreras();
         
     } catch (error) {
+        console.error('Error:', error);
         alert('Error: ' + error.message);
     } finally {
         document.getElementById('loader').classList.add('hidden');
