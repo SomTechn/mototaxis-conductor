@@ -148,7 +148,7 @@ function inicializarGPS() {
             };
             
             console.log('✅ GPS activado:', miUbicacion);
-            mapa.setView([miUbicacion.lat, miUbicacion.lng], 15);
+            mapa.setView([miUbicacion.lat, miUbicacion.lng], 14);
             
             // Crear marcador rotable
             crearMarcadorRotable();
@@ -253,11 +253,11 @@ function iniciarActualizacionGPS() {
 function centrarMapaEnConductor() {
     if (!miUbicacion || !mapa) return;
     
-    // Zoom 13 ≈ 10km de radio visible
+    // Zoom 14 = ~5km de radio visible
     // Smooth pan hacia la ubicación del conductor
-    mapa.setView([miUbicacion.lat, miUbicacion.lng], 13, {
+    mapa.setView([miUbicacion.lat, miUbicacion.lng], 14, {
         animate: true,
-        duration: 1
+        duration: 0.5
     });
 }
 
@@ -885,7 +885,10 @@ async function mostrarCarreraActivaEnMapa(carrera) {
             [carrera.origen_lat, carrera.origen_lng],
             [carrera.destino_lat, carrera.destino_lng]
         ]);
-        mapa.fitBounds(bounds, { padding: [50, 50] });
+        mapa.fitBounds(bounds, { 
+            padding: [50, 50],
+            maxZoom: 14 // No alejar más de 5km de radio
+        });
         
     } catch (error) {
         console.error('Error mostrando carrera:', error);
