@@ -436,6 +436,14 @@
             line-height: 30px;
         }
         
+        .rotating-marker {
+            transition: transform 0.3s ease;
+        }
+        
+        .rotating-marker svg {
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+        
         .notification {
             position: fixed;
             top: 1rem;
@@ -506,6 +514,10 @@
     <div class="bottom-sheet" id="bottomSheet">
         <div class="sheet-header" id="sheetHeader">
             <div class="sheet-handle"></div>
+            <!-- Botón de debug temporal -->
+            <button onclick="debugCarreras()" style="position:absolute;right:1rem;top:0.5rem;padding:0.5rem;background:#ef4444;color:white;border:none;border-radius:0.5rem;font-size:0.75rem">
+                🐛 Debug
+            </button>
         </div>
         
         <div class="sheet-tabs">
@@ -577,6 +589,19 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
     <script src="shared/config.js"></script>
+    <script>
+        // Debug: verificar que todo cargó
+        console.log('=== VERIFICANDO DEPENDENCIAS ===');
+        console.log('Leaflet:', typeof L !== 'undefined' ? '✅' : '❌');
+        console.log('Supabase lib:', typeof window.supabase !== 'undefined' ? '✅' : '❌');
+        
+        // Si config.js no carga, mostrar error
+        setTimeout(() => {
+            if (typeof window.supabase === 'undefined') {
+                document.getElementById('loader').innerHTML = '<p style="color:red">Error: No se pudo cargar config.js<br>Verifica que el archivo existe en shared/config.js</p>';
+            }
+        }, 2000);
+    </script>
     <script src="app.js"></script>
 </body>
 </html>
