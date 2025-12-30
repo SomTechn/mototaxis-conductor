@@ -228,6 +228,11 @@ function iniciarActualizacionGPS() {
                 // Actualizar marcador con rotación
                 crearMarcadorRotable();
                 
+                // Centrar mapa en conductor (solo si no hay carrera activa)
+                if (!carreraEnCurso) {
+                    centrarMapaEnConductor();
+                }
+                
                 // Si hay carrera activa, verificar cambio de ruta
                 if (carreraEnCurso) {
                     await verificarCambioRuta();
@@ -243,6 +248,17 @@ function iniciarActualizacionGPS() {
             { enableHighAccuracy: true, maximumAge: 0 }
         );
     }, 3000); // Cada 3 segundos
+}
+
+function centrarMapaEnConductor() {
+    if (!miUbicacion || !mapa) return;
+    
+    // Zoom 13 ≈ 10km de radio visible
+    // Smooth pan hacia la ubicación del conductor
+    mapa.setView([miUbicacion.lat, miUbicacion.lng], 13, {
+        animate: true,
+        duration: 1
+    });
 }
 
 async function guardarUbicacionEnBD() {
@@ -298,6 +314,9 @@ async function actualizarDistanciasYTiempos() {
     try {
         const estado = carreraEnCurso.estado;
         
+        let minutosHastaOrigen = 0;
+        let horaLlegadaOrigen = '';
+        
         if (estado === 'aceptada' || estado === 'en_camino') {
             // Calcular ruta a punto de recogida
             const rutaOrigen = await calcularRutaOSRM(
@@ -307,25 +326,37 @@ async function actualizarDistanciasYTiempos() {
             
             if (rutaOrigen.distance && rutaOrigen.duration) {
                 const kmOrigen = (rutaOrigen.distance / 1000).toFixed(1);
-                const minOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
-                const horaLlegada = calcularHoraLlegada(minOrigen);
+                minutosHastaOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
+                horaLlegadaOrigen = calcularHoraLlegada(minutosHastaOrigen);
                 
-                actualizarUITracking('origen', kmOrigen, minOrigen, horaLlegada);
+                actualizarUITracking('origen', kmOrigen, minutosHastaOrigen, horaLlegadaOrigen);
             }
         }
         
-        // Siempre mostrar info del destino
+        // Calcular ruta al destino
+        const puntoInicio = estado === 'en_curso' 
+            ? { lng: miUbicacion.lng, lat: miUbicacion.lat }
+            : { lng: carreraEnCurso.origen_lng, lat: carreraEnCurso.origen_lat };
+        
         const rutaDestino = await calcularRutaOSRM(
-            estado === 'en_curso' ? miUbicacion.lng : carreraEnCurso.origen_lng,
-            estado === 'en_curso' ? miUbicacion.lat : carreraEnCurso.origen_lat,
-            carreraEnCurso.destino_lng,
-            carreraEnCurso.destino_lat
+            puntoInicio.lng, puntoInicio.lat,
+            carreraEnCurso.destino_lng, carreraEnCurso.destino_lat
         );
         
         if (rutaDestino.distance && rutaDestino.duration) {
             const kmDestino = (rutaDestino.distance / 1000).toFixed(1);
             const minDestino = Math.round((rutaDestino.duration / 60) * 1.3);
-            const horaLlegadaDestino = calcularHoraLlegada(minDestino);
+            
+            // Calcular hora de llegada al destino
+            let horaLlegadaDestino;
+            if (estado === 'en_curso') {
+                // Si ya está en curso, hora = ahora + tiempo al destino
+                horaLlegadaDestino = calcularHoraLlegada(minDestino);
+            } else {
+                // Si aún no recoge, hora = tiempo hasta origen + tiempo del viaje
+                const tiempoTotal = minutosHastaOrigen + minDestino;
+                horaLlegadaDestino = calcularHoraLlegada(tiempoTotal);
+            }
             
             actualizarUITracking('destino', kmDestino, minDestino, horaLlegadaDestino);
         }
@@ -536,9 +567,10 @@ function renderCarreraDisponible(carrera) {
             <!-- Distancia del viaje (origen a destino) -->
             <div style="background:#dbeafe;padding:0.75rem;border-radius:0.5rem;margin-bottom:0.75rem">
                 <div style="font-size:0.625rem;color:#1e40af;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">Distancia del Viaje</div>
-                <div style="display:flex;gap:1rem;font-size:0.875rem;color:#1e40af">
+                <div style="display:flex;gap:1rem;font-size:0.875rem;color:#1e40af;flex-wrap:wrap">
                     <div>📏 <span style="font-weight:700">${carrera.distancia_km ? carrera.distancia_km.toFixed(1) : '—'}</span> km</div>
                     <div>⏱️ <span style="font-weight:700">${carrera.tiempo_estimado_min || '—'}</span> min</div>
+                    <div>🏁 <span id="${cardId}-hora-destino" style="font-weight:700">--:--</span></div>
                     ${esColectiva ? '<div style="color:#10b981;font-weight:700">✨ 30% OFF</div>' : ''}
                 </div>
             </div>
@@ -601,7 +633,7 @@ async function calcularDistanciasCard(carrera) {
         if (rutaOrigen.distance && rutaOrigen.duration) {
             const kmOrigen = (rutaOrigen.distance / 1000).toFixed(1);
             const minOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
-            const horaLlegada = calcularHoraLlegada(minOrigen);
+            const horaLlegadaOrigen = calcularHoraLlegada(minOrigen);
             
             const elemDist = document.getElementById(`${cardId}-dist-origen`);
             const elemTime = document.getElementById(`${cardId}-time-origen`);
@@ -609,7 +641,17 @@ async function calcularDistanciasCard(carrera) {
             
             if (elemDist) elemDist.textContent = kmOrigen;
             if (elemTime) elemTime.textContent = minOrigen;
-            if (elemHora) elemHora.textContent = horaLlegada;
+            if (elemHora) elemHora.textContent = horaLlegadaOrigen;
+            
+            // Calcular hora de llegada al DESTINO (origen + viaje)
+            const minViaje = carrera.tiempo_estimado_min || 0;
+            const tiempoTotal = minOrigen + minViaje;
+            const horaLlegadaDestino = calcularHoraLlegada(tiempoTotal);
+            
+            const elemHoraDestino = document.getElementById(`${cardId}-hora-destino`);
+            if (elemHoraDestino) {
+                elemHoraDestino.textContent = horaLlegadaDestino;
+            }
         }
         
     } catch (error) {
