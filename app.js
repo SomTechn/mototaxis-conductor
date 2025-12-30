@@ -493,8 +493,11 @@ function renderCarreraDisponible(carrera) {
     const esColectiva = carrera.tipo === 'colectivo';
     const esNueva = carrera.conductor_id === conductorId;
     
+    // ID único para esta card
+    const cardId = `card-${carrera.id}`;
+    
     let html = `
-        <div class="ride-card ${esNueva ? 'nueva' : ''}" onclick="expandirCarrera('${carrera.id}')">
+        <div class="ride-card ${esNueva ? 'nueva' : ''}" id="${cardId}" onclick="expandirCarrera('${carrera.id}')">
             <div class="ride-header">
                 <div class="ride-type">
                     ${esColectiva ? '🚐 Colectiva' : '🏍️ Directa'}
@@ -520,16 +523,24 @@ function renderCarreraDisponible(carrera) {
                 </div>
             </div>
             
-            <div class="ride-stats">
-                <div class="stat-item">
-                    <span>📏</span>
-                    <span class="stat-value">${carrera.distancia_km ? carrera.distancia_km.toFixed(1) : '—'} km</span>
+            <!-- Distancia a punto de recogida -->
+            <div style="background:#fef3c7;padding:0.75rem;border-radius:0.5rem;margin-bottom:0.5rem">
+                <div style="font-size:0.625rem;color:#92400e;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">Hasta Recogida</div>
+                <div style="display:flex;gap:1rem;font-size:0.875rem;color:#92400e">
+                    <div>📏 <span id="${cardId}-dist-origen" style="font-weight:700">--</span> km</div>
+                    <div>⏱️ <span id="${cardId}-time-origen" style="font-weight:700">--</span> min</div>
+                    <div>🕐 <span id="${cardId}-hora-origen" style="font-weight:700">--:--</span></div>
                 </div>
-                <div class="stat-item">
-                    <span>⏱️</span>
-                    <span class="stat-value">${carrera.tiempo_estimado_min || '—'} min</span>
+            </div>
+            
+            <!-- Distancia del viaje (origen a destino) -->
+            <div style="background:#dbeafe;padding:0.75rem;border-radius:0.5rem;margin-bottom:0.75rem">
+                <div style="font-size:0.625rem;color:#1e40af;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">Distancia del Viaje</div>
+                <div style="display:flex;gap:1rem;font-size:0.875rem;color:#1e40af">
+                    <div>📏 <span style="font-weight:700">${carrera.distancia_km ? carrera.distancia_km.toFixed(1) : '—'}</span> km</div>
+                    <div>⏱️ <span style="font-weight:700">${carrera.tiempo_estimado_min || '—'}</span> min</div>
+                    ${esColectiva ? '<div style="color:#10b981;font-weight:700">✨ 30% OFF</div>' : ''}
                 </div>
-                ${esColectiva ? '<div class="stat-item"><span style="color:#10b981">✨ 30% OFF</span></div>' : ''}
             </div>
     `;
     
@@ -565,7 +576,45 @@ function renderCarreraDisponible(carrera) {
     }
     
     html += `</div>`;
+    
+    // Calcular distancias después de renderizar
+    setTimeout(() => calcularDistanciasCard(carrera), 100);
+    
     return html;
+}
+
+async function calcularDistanciasCard(carrera) {
+    if (!miUbicacion) {
+        console.warn('No hay ubicación GPS para calcular distancias');
+        return;
+    }
+    
+    const cardId = `card-${carrera.id}`;
+    
+    try {
+        // Calcular ruta de mi ubicación al origen
+        const rutaOrigen = await calcularRutaOSRM(
+            miUbicacion.lng, miUbicacion.lat,
+            carrera.origen_lng, carrera.origen_lat
+        );
+        
+        if (rutaOrigen.distance && rutaOrigen.duration) {
+            const kmOrigen = (rutaOrigen.distance / 1000).toFixed(1);
+            const minOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
+            const horaLlegada = calcularHoraLlegada(minOrigen);
+            
+            const elemDist = document.getElementById(`${cardId}-dist-origen`);
+            const elemTime = document.getElementById(`${cardId}-time-origen`);
+            const elemHora = document.getElementById(`${cardId}-hora-origen`);
+            
+            if (elemDist) elemDist.textContent = kmOrigen;
+            if (elemTime) elemTime.textContent = minOrigen;
+            if (elemHora) elemHora.textContent = horaLlegada;
+        }
+        
+    } catch (error) {
+        console.error('Error calculando distancias para card:', error);
+    }
 }
 
 async function cargarCarrerasActivas() {
