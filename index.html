@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="../shared/styles.css">
     
     <style>
-        /* ESTILOS ESPECÍFICOS CONDUCTOR */
+        /* BASE */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; height: 100vh; background: #1a1a1a; }
         
@@ -45,23 +45,32 @@
         .sheet-bar { width: 40px; height: 5px; background: #e5e7eb; border-radius: 3px; }
         .sheet-content { padding: 0 1.5rem 1.5rem 1.5rem; overflow-y: auto; }
 
-        /* TABS */
         .tabs { display: flex; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
         .tab { flex: 1; padding: 10px; text-align: center; color: #666; font-weight: 600; border-bottom: 3px solid transparent; cursor: pointer; }
         .tab.active { color: #2563eb; border-color: #2563eb; }
 
-        /* ALERTA DE SOLICITUD */
+        /* --- ALERTA DE SOLICITUD (TRANSPARENTE) --- */
         #requestOverlay {
             position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
-            background: #111827; z-index: 9999; overflow: hidden;
+            /* Fondo gradiente transparente para ver el mapa */
+            background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0) 100%);
+            z-index: 9999; overflow: hidden;
             transition: height 0.3s ease-out; color: white;
-            display: flex; flex-direction: column;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            pointer-events: none; /* Dejar pasar clicks al mapa en la zona transparente */
         }
-        #requestOverlay.active { height: 100%; }
+        #requestOverlay.active { height: 100%; pointer-events: auto; }
+
+        .req-content {
+            padding: 1.5rem;
+            width: 100%;
+            pointer-events: auto; /* Reactivar clicks en la tarjeta */
+        }
 
         .req-card {
-            background: #1f2937; margin: 1rem; padding: 1.5rem; border-radius: 1rem;
-            border: 2px solid #374151; margin-top: auto; margin-bottom: 2rem;
+            background: #1f2937; padding: 1.5rem; border-radius: 1rem;
+            border: 2px solid #374151; margin-bottom: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
             animation: pulse-border 2s infinite;
         }
         @keyframes pulse-border { 0% { border-color: #3b82f6; } 50% { border-color: #2563eb; } 100% { border-color: #3b82f6; } }
@@ -69,22 +78,38 @@
         .req-stats { display: flex; justify-content: space-between; margin-bottom: 1rem; }
         .req-val { font-size: 1.5rem; font-weight: bold; }
         .req-label { font-size: 0.8rem; color: #9ca3af; }
-        
-        .swipe-btn {
-            width: 100%; padding: 1.2rem; border-radius: 1rem; border: none;
-            font-size: 1.2rem; font-weight: bold; cursor: pointer; margin-top: 1rem;
-        }
-        .btn-accept { background: #10b981; color: white; }
-        .btn-reject { background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 0.5rem; padding: 0.8rem; }
 
-        /* CARD VIAJE */
+        /* BOTÓN DESLIZANTE REAL */
+        .slider-container {
+            position: relative; width: 100%; height: 60px;
+            background: #374151; border-radius: 30px;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .slider-text { font-weight: bold; color: #9ca3af; pointer-events: none; z-index: 1; letter-spacing: 1px; animation: shine 2s infinite; }
+        .slider-knob {
+            position: absolute; left: 5px; top: 5px;
+            width: 50px; height: 50px; border-radius: 50%;
+            background: #10b981; box-shadow: 0 2px 10px rgba(16,185,129,0.5);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; cursor: grab; z-index: 2;
+            transition: left 0.1s;
+        }
+        .slider-knob.active { cursor: grabbing; transform: scale(1.1); }
+        .btn-reject { width: 100%; background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 1rem; padding: 0.8rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold; }
+
+        @keyframes shine { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+        /* UTILIDADES */
         .active-trip-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem; }
         .step-indicator { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .step-circle { width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-
         .loader-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; }
         .rotating-marker { transition: transform 0.5s linear; }
         .hidden { display: none !important; }
+        
+        .notification { position: fixed; top: 1rem; left: 1rem; right: 1rem; background: white; padding: 1rem; border-radius: 1rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 10000; animation: slideDown 0.3s; }
+        @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
 </head>
 <body>
@@ -103,48 +128,51 @@
     <div id="map"></div>
 
     <div id="requestOverlay">
-        <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:2rem; text-align:center">
-            <div style="font-size:4rem; margin-bottom:1rem; animation: bounce 1s infinite">🔔</div>
-            <h1 style="margin:0">¡Nueva Solicitud!</h1>
-            <p style="color:#9ca3af" id="reqType">Viaje Directo</p>
-            <div id="reqTimer" style="font-size:2rem; font-weight:bold; color:#f59e0b; margin-top:1rem">30s</div>
+        <div style="position:absolute; top: 80px; width:100%; text-align:center; pointer-events:none;">
+            <div style="background:rgba(0,0,0,0.7); display:inline-block; padding:0.5rem 1rem; border-radius:20px; color:white;">
+                <span id="reqType">Nueva Solicitud</span> • <span id="reqTimer" style="color:#f59e0b; font-weight:bold">30s</span>
+            </div>
         </div>
-        
-        <div class="req-card">
-            <div class="req-stats">
-                <div class="req-stat">
-                    <div class="req-val" id="reqDist">- km</div>
-                    <div class="req-label">a recoger</div>
+
+        <div class="req-content">
+            <div class="req-card">
+                <div class="req-stats">
+                    <div class="req-stat">
+                        <div class="req-val" id="reqDist">- km</div>
+                        <div class="req-label">a recoger</div>
+                    </div>
+                    <div class="req-stat">
+                        <div class="req-val" style="color:#10b981" id="reqPrice">L -</div>
+                        <div class="req-label">Ganancia</div>
+                    </div>
                 </div>
-                <div class="req-stat">
-                    <div class="req-val" style="color:#10b981" id="reqPrice">L -</div>
-                    <div class="req-label">Ganancia</div>
+                <div style="background:#374151; padding:1rem; border-radius:0.5rem; margin-bottom:1.5rem">
+                    <p style="margin:0; font-size:0.9rem; color:#d1d5db">📍 Recoger en:</p>
+                    <strong style="font-size:1.1rem" id="reqAddress">...</strong>
                 </div>
+                
+                <div class="slider-container" id="sliderContainer">
+                    <div class="slider-text">DESLIZA PARA ACEPTAR >>>></div>
+                    <div class="slider-knob" id="sliderKnob">➜</div>
+                </div>
+
+                <button class="btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
             </div>
-            <div style="background:#374151; padding:1rem; border-radius:0.5rem; margin-bottom:1rem">
-                <p style="margin:0; font-size:0.9rem; color:#d1d5db">📍 Recoger en:</p>
-                <strong style="font-size:1.1rem" id="reqAddress">...</strong>
-            </div>
-            <button class="swipe-btn btn-accept" onclick="aceptarSolicitudActual()">DESLIZA PARA ACEPTAR</button>
-            <button class="swipe-btn btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
         </div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
         <div class="sheet-handle"><div class="sheet-bar"></div></div>
-        
         <div class="sheet-content">
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('disponibles')">Disponibles (<span id="countDisp">0</span>)</div>
                 <div class="tab" onclick="switchTab('curso')">En Curso</div>
             </div>
-
             <div id="tab-disponibles">
                 <div id="listaDisponibles" style="padding-bottom:20px">
                     <p style="text-align:center; color:#999; margin-top:2rem">Esperando solicitudes...</p>
                 </div>
             </div>
-
             <div id="tab-curso" class="hidden">
                 <div id="viajeActivoContainer">
                     <p style="text-align:center; color:#999">No tienes viaje activo</p>
@@ -155,7 +183,8 @@
 
     <div id="sideMenu" style="position:fixed; top:0; left:-100%; width:80%; height:100%; background:white; z-index:500; transition:0.3s; padding:2rem; box-shadow: 2px 0 10px rgba(0,0,0,0.5)">
         <h2>Menú Conductor</h2>
-        <h4 id="driverName" style="color:#666">Cargando...</h4> <hr>
+        <h4 id="driverName" style="color:#666">Cargando...</h4>
+        <hr>
         <button class="btn btn-primary btn-block mb-2" onclick="toggleEstado()">Cambiar Estado</button>
         <button class="btn btn-danger btn-block" onclick="cerrarSesion()">Cerrar Sesión</button>
         <button class="btn btn-secondary btn-block mt-2" onclick="toggleMenu()">Cerrar Menú</button>
@@ -166,14 +195,11 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    <script src="../shared/config.js"></script> <script src="app.js"></script>
+    <script src="../shared/config.js"></script>
+    <script src="app.js"></script>
 
     <script>
-        /* Funciones UI simples */
-        function toggleMenu() {
-            const m = document.getElementById('sideMenu');
-            m.style.left = m.style.left === '0px' ? '-100%' : '0px';
-        }
+        function toggleMenu() { document.getElementById('sideMenu').style.left = document.getElementById('sideMenu').style.left === '0px' ? '-100%' : '0px'; }
         function switchTab(t) {
             document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
             event.target.classList.add('active');
