@@ -9,49 +9,40 @@
     <link rel="stylesheet" href="../shared/styles.css">
     
     <style>
-        /* RESET & BASICS */
+        /* ESTILOS ESPECÍFICOS CONDUCTOR */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; height: 100vh; background: #1a1a1a; }
         
-        /* MAPA DE FONDO */
         #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
-        /* HEADER FLOTANTE (ESTADO) */
+        /* HEADER ESTADO */
         .status-header {
             position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
             z-index: 100; background: white; padding: 0.5rem 1.5rem;
             border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
             display: flex; align-items: center; gap: 10px; font-weight: 600;
-            transition: all 0.3s;
-            cursor: pointer;
+            transition: all 0.3s; cursor: pointer;
         }
         .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
         .status-online .status-dot { background: #10b981; box-shadow: 0 0 10px #10b981; }
         .status-busy .status-dot { background: #f59e0b; }
         
-        /* BOTÓN MENÚ */
         .menu-btn {
             position: fixed; top: 1rem; left: 1rem; z-index: 100;
             background: white; width: 45px; height: 45px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem;
-            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem; cursor: pointer;
         }
 
-        /* BOTTOM SHEET (PANEL DESLIZANTE) */
+        /* BOTTOM SHEET */
         .bottom-sheet {
             position: fixed; bottom: 0; left: 0; width: 100%;
             background: white; border-radius: 20px 20px 0 0;
             box-shadow: 0 -5px 20px rgba(0,0,0,0.2); z-index: 200;
-            transition: transform 0.3s cubic-bezier(0.1, 0.7, 0.1, 1);
             max-height: 85vh; display: flex; flex-direction: column;
         }
-        .sheet-handle {
-            width: 100%; height: 25px; display: flex; justify-content: center; align-items: center;
-            cursor: grab;
-        }
+        .sheet-handle { height: 25px; display: flex; justify-content: center; align-items: center; }
         .sheet-bar { width: 40px; height: 5px; background: #e5e7eb; border-radius: 3px; }
-        
         .sheet-content { padding: 0 1.5rem 1.5rem 1.5rem; overflow-y: auto; }
 
         /* TABS */
@@ -59,52 +50,41 @@
         .tab { flex: 1; padding: 10px; text-align: center; color: #666; font-weight: 600; border-bottom: 3px solid transparent; cursor: pointer; }
         .tab.active { color: #2563eb; border-color: #2563eb; }
 
-        /* OVERLAY DE NUEVA SOLICITUD (TIPO UBER) */
+        /* ALERTA DE SOLICITUD */
         #requestOverlay {
             position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
             background: #111827; z-index: 9999; overflow: hidden;
             transition: height 0.3s ease-out; color: white;
             display: flex; flex-direction: column;
         }
-        #requestOverlay.active { height: 100%; } /* Pantalla completa al recibir viaje */
+        #requestOverlay.active { height: 100%; }
 
         .req-card {
             background: #1f2937; margin: 1rem; padding: 1.5rem; border-radius: 1rem;
             border: 2px solid #374151; margin-top: auto; margin-bottom: 2rem;
             animation: pulse-border 2s infinite;
         }
-        @keyframes pulse-border { 0% { border-color: #3b82f6; } 50% { border-color: #2563eb; box-shadow: 0 0 20px rgba(37,99,235,0.3); } 100% { border-color: #3b82f6; } }
+        @keyframes pulse-border { 0% { border-color: #3b82f6; } 50% { border-color: #2563eb; } 100% { border-color: #3b82f6; } }
 
         .req-stats { display: flex; justify-content: space-between; margin-bottom: 1rem; }
-        .req-stat { text-align: center; }
-        .req-val { font-size: 1.5rem; font-weight: bold; color: white; }
+        .req-val { font-size: 1.5rem; font-weight: bold; }
         .req-label { font-size: 0.8rem; color: #9ca3af; }
         
         .swipe-btn {
             width: 100%; padding: 1.2rem; border-radius: 1rem; border: none;
             font-size: 1.2rem; font-weight: bold; cursor: pointer; margin-top: 1rem;
         }
-        .btn-accept { background: #10b981; color: white; box-shadow: 0 4px 15px rgba(16,185,129,0.4); }
+        .btn-accept { background: #10b981; color: white; }
         .btn-reject { background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 0.5rem; padding: 0.8rem; }
 
-        /* ESTILOS DE TARJETA EN CURSO */
-        .active-trip-card {
-            background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem;
-        }
-        .step-indicator {
-            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
-        }
-        .step-circle {
-            width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white;
-            display: flex; align-items: center; justify-content: center; font-weight: bold;
-        }
+        /* CARD VIAJE */
+        .active-trip-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem; }
+        .step-indicator { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .step-circle { width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
-        /* ANIMACIÓN PUNTO GPS */
-        .rotating-marker { transition: transform 0.5s linear; }
-        
-        /* UTILIDADES */
-        .hidden { display: none !important; }
         .loader-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+        .rotating-marker { transition: transform 0.5s linear; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -145,28 +125,23 @@
                 <p style="margin:0; font-size:0.9rem; color:#d1d5db">📍 Recoger en:</p>
                 <strong style="font-size:1.1rem" id="reqAddress">...</strong>
             </div>
-            <button class="swipe-btn btn-accept" id="btnAccept" onclick="aceptarSolicitudActual()">DESLIZA PARA ACEPTAR</button>
+            <button class="swipe-btn btn-accept" onclick="aceptarSolicitudActual()">DESLIZA PARA ACEPTAR</button>
             <button class="swipe-btn btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
         </div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
-        <div class="sheet-handle" onclick="toggleSheet()">
-            <div class="sheet-bar"></div>
-        </div>
+        <div class="sheet-handle"><div class="sheet-bar"></div></div>
         
         <div class="sheet-content">
-            <div class="tabs" id="mainTabs">
+            <div class="tabs">
                 <div class="tab active" onclick="switchTab('disponibles')">Disponibles (<span id="countDisp">0</span>)</div>
                 <div class="tab" onclick="switchTab('curso')">En Curso</div>
             </div>
 
             <div id="tab-disponibles">
                 <div id="listaDisponibles" style="padding-bottom:20px">
-                    <p style="text-align:center; color:#999; margin-top:2rem">
-                        Esperando solicitudes...<br>
-                        <small>Ponte "En Línea" para recibir viajes.</small>
-                    </p>
+                    <p style="text-align:center; color:#999; margin-top:2rem">Esperando solicitudes...</p>
                 </div>
             </div>
 
@@ -180,8 +155,7 @@
 
     <div id="sideMenu" style="position:fixed; top:0; left:-100%; width:80%; height:100%; background:white; z-index:500; transition:0.3s; padding:2rem; box-shadow: 2px 0 10px rgba(0,0,0,0.5)">
         <h2>Menú Conductor</h2>
-        <h4 id="driverName" style="color:#666">...</h4>
-        <hr>
+        <h4 id="driverName" style="color:#666">Cargando...</h4> <hr>
         <button class="btn btn-primary btn-block mb-2" onclick="toggleEstado()">Cambiar Estado</button>
         <button class="btn btn-danger btn-block" onclick="cerrarSesion()">Cerrar Sesión</button>
         <button class="btn btn-secondary btn-block mt-2" onclick="toggleMenu()">Cerrar Menú</button>
@@ -192,5 +166,21 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    
-    <script src="../
+    <script src="../shared/config.js"></script> <script src="app.js"></script>
+
+    <script>
+        /* Funciones UI simples */
+        function toggleMenu() {
+            const m = document.getElementById('sideMenu');
+            m.style.left = m.style.left === '0px' ? '-100%' : '0px';
+        }
+        function switchTab(t) {
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-disponibles').classList.add('hidden');
+            document.getElementById('tab-curso').classList.add('hidden');
+            document.getElementById('tab-'+t).classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
