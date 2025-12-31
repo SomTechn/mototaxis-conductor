@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conductor - Mototaxis</title>
+    <!-- IMPORTANTE: Ruta correcta hacia shared/styles.css -->
     <link rel="stylesheet" href="shared/styles.css">
     <style>
         body {
@@ -12,6 +13,8 @@
             align-items: center;
             min-height: 100vh;
             background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
         .login-container {
             background: white;
@@ -28,11 +31,12 @@
         .logo h1 {
             font-size: 2rem;
             color: #f59e0b;
-            margin-bottom: 0.5rem;
+            margin: 0 0 0.5rem 0;
         }
         .logo p {
             color: #6b7280;
             font-size: 0.875rem;
+            margin: 0;
         }
         .tabs {
             display: flex;
@@ -75,6 +79,18 @@
             color: #f59e0b;
             text-decoration: none;
         }
+        #errorMsg {
+            display: none;
+            background: #fee;
+            color: #c00;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+        #errorMsg.show {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -83,6 +99,8 @@
             <h1>🏍️ Mototaxis</h1>
             <p>Portal de Conductores</p>
         </div>
+        
+        <div id="errorMsg"></div>
         
         <div class="tabs">
             <button class="tab active" data-tab="login">Iniciar Sesión</button>
@@ -93,12 +111,12 @@
             <form id="formLogin">
                 <div class="form-group">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="loginEmail" required placeholder="tu@email.com">
+                    <input type="email" class="form-input" id="loginEmail" required placeholder="tu@email.com" autocomplete="email">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Contraseña</label>
-                    <input type="password" class="form-input" id="loginPassword" required placeholder="••••••••">
+                    <input type="password" class="form-input" id="loginPassword" required placeholder="••••••••" autocomplete="current-password">
                 </div>
                 
                 <button type="submit" class="btn btn-primary" style="width: 100%; background:#f59e0b">
@@ -136,17 +154,17 @@
                 
                 <div class="form-group">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="regEmail" required placeholder="tu@email.com">
+                    <input type="email" class="form-input" id="regEmail" required placeholder="tu@email.com" autocomplete="email">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Contraseña</label>
-                    <input type="password" class="form-input" id="regPassword" required minlength="6" placeholder="Mínimo 6 caracteres">
+                    <input type="password" class="form-input" id="regPassword" required minlength="6" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">Confirmar Contraseña</label>
-                    <input type="password" class="form-input" id="regPasswordConfirm" required placeholder="Repite tu contraseña">
+                    <input type="password" class="form-input" id="regPasswordConfirm" required placeholder="Repite tu contraseña" autocomplete="new-password">
                 </div>
                 
                 <button type="submit" class="btn btn-primary" style="width: 100%; background:#f59e0b">
@@ -166,9 +184,66 @@
         <p>Cargando...</p>
     </div>
     
+    <!-- 1. Supabase Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
+    
+    <!-- 2. Config compartido -->
     <script src="shared/config.js"></script>
+    
     <script>
+        console.log('🔄 Login iniciando...');
+        
+        function mostrarError(mensaje) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = mensaje;
+            errorMsg.classList.add('show');
+            setTimeout(() => errorMsg.classList.remove('show'), 5000);
+        }
+        
+        function ocultarLoader() {
+            document.getElementById('loader').classList.add('hidden');
+        }
+        
+        function mostrarLoader() {
+            document.getElementById('loader').classList.remove('hidden');
+        }
+        
+        async function esperarSupabase() {
+            return new Promise((resolve, reject) => {
+                if (window.supabaseClient) {
+                    resolve();
+                    return;
+                }
+                
+                let intentos = 0;
+                const interval = setInterval(() => {
+                    intentos++;
+                    
+                    if (window.supabaseClient) {
+                        clearInterval(interval);
+                        console.log('✅ Supabase conectado');
+                        resolve();
+                    } else if (intentos >= 50) {
+                        clearInterval(interval);
+                        reject(new Error('No se pudo conectar a Supabase'));
+                    }
+                }, 100);
+            });
+        }
+        
+        async function init() {
+            try {
+                await esperarSupabase();
+                console.log('✅ Login listo');
+                ocultarLoader();
+            } catch (error) {
+                console.error('❌', error);
+                mostrarError(error.message);
+                ocultarLoader();
+            }
+        }
+        
+        // Tabs
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -181,74 +256,98 @@
         // LOGIN
         document.getElementById('formLogin').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
+            
+            const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
-            document.getElementById('loader').classList.remove('hidden');
+            
+            mostrarLoader();
             
             try {
-                const { data, error } = await window.supabase.auth.signInWithPassword({ email, password });
+                if (!window.supabaseClient) throw new Error('Supabase no está listo');
+                
+                const { data, error } = await window.supabaseClient.auth.signInWithPassword({ email, password });
                 if (error) throw error;
                 
-                const { data: perfil } = await window.supabase.from('perfiles').select('rol').eq('id', data.user.id).single();
-                if (perfil && perfil.rol !== 'conductor') {
-                    await window.supabase.auth.signOut();
+                const { data: perfil } = await window.supabaseClient.from('perfiles').select('rol, nombre').eq('id', data.user.id).single();
+                
+                if (!perfil || perfil.rol !== 'conductor') {
+                    await window.supabaseClient.auth.signOut();
                     throw new Error('Este usuario no es un conductor');
                 }
                 
                 window.location.href = 'index.html';
+                
             } catch (error) {
-                alert('Error: ' + error.message);
+                let msg = 'Error al iniciar sesión';
+                if (error.message.includes('Invalid login credentials')) msg = 'Email o contraseña incorrectos';
+                else if (error.message) msg = error.message;
+                mostrarError(msg);
             } finally {
-                document.getElementById('loader').classList.add('hidden');
+                ocultarLoader();
             }
         });
         
         // REGISTRO
         document.getElementById('formRegister').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const nombre = document.getElementById('regNombre').value;
-            const telefono = document.getElementById('regTelefono').value;
-            const placa = document.getElementById('regPlaca').value;
-            const modelo = document.getElementById('regModelo').value;
-            const color = document.getElementById('regColor').value;
-            const email = document.getElementById('regEmail').value;
+            
+            const nombre = document.getElementById('regNombre').value.trim();
+            const telefono = document.getElementById('regTelefono').value.trim();
+            const placa = document.getElementById('regPlaca').value.trim().toUpperCase();
+            const modelo = document.getElementById('regModelo').value.trim();
+            const color = document.getElementById('regColor').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
             const password = document.getElementById('regPassword').value;
             const passwordConfirm = document.getElementById('regPasswordConfirm').value;
             
             if (password !== passwordConfirm) {
-                alert('Las contraseñas no coinciden');
+                mostrarError('Las contraseñas no coinciden');
                 return;
             }
             
-            document.getElementById('loader').classList.remove('hidden');
+            mostrarLoader();
             
             try {
-                const { data: authData, error: authError } = await window.supabase.auth.signUp({ email, password });
+                if (!window.supabaseClient) throw new Error('Supabase no está listo');
+                
+                const { data: authData, error: authError } = await window.supabaseClient.auth.signUp({ email, password });
                 if (authError) throw authError;
                 
-                await new Promise(r => setTimeout(r, 1500));
+                await new Promise(r => setTimeout(r, 2000));
                 
-                const { error: perfilError } = await window.supabase.from('perfiles').insert({
+                const { error: perfilError } = await window.supabaseClient.from('perfiles').insert({
                     id: authData.user.id, nombre, telefono, rol: 'conductor', activo: true
                 });
                 
                 if (perfilError && perfilError.code !== '23505') throw perfilError;
                 
-                const { error: conductorError } = await window.supabase.from('conductores').insert({
+                const { error: conductorError } = await window.supabaseClient.from('conductores').insert({
                     perfil_id: authData.user.id, placa, modelo_moto: modelo, color, estado: 'inactivo'
                 });
                 
                 if (conductorError && conductorError.code !== '23505') throw conductorError;
                 
-                alert('Cuenta creada exitosamente');
+                alert('✅ Cuenta creada exitosamente');
                 
-                await window.supabase.auth.signInWithPassword({ email, password });
+                await window.supabaseClient.auth.signInWithPassword({ email, password });
                 window.location.href = 'index.html';
+                
             } catch (error) {
-                alert('Error: ' + error.message);
+                let msg = 'Error al crear cuenta';
+                if (error.message.includes('already registered')) msg = 'Este email ya está registrado';
+                else if (error.message.includes('unique')) msg = 'Email o placa ya registrados';
+                else if (error.message) msg = error.message;
+                mostrarError(msg);
             } finally {
-                document.getElementById('loader').classList.add('hidden');
+                ocultarLoader();
             }
+        });
+        
+        window.addEventListener('load', init);
+        window.addEventListener('supabaseReady', ocultarLoader);
+        window.addEventListener('supabaseError', (e) => {
+            mostrarError('Error de conexión');
+            ocultarLoader();
         });
     </script>
 </body>
