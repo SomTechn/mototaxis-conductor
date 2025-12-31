@@ -1,33 +1,8 @@
+// CONDUCTOR JS (FINAL)
 let mapa, usuario, conductorId, conductorData, carreraEnCurso = null, solicitudTemp = null;
 let miUbicacion, miMarker, rutaLayer, watchId;
 
-async function init() {
-    try {
-        await esperarSupabase();
-        const { data: { session } } = await window.supabaseClient.auth.getSession();
-        if (!session) return window.location.href = 'login.html';
-        usuario = session.user;
-
-        await cargarDatos();
-        inicializarMapa();
-        inicializarSlider();
-        suscribirse();
-        await recuperarEstado();
-        cargarStats(); // Ganancias
-        
-        document.getElementById('loader').classList.add('hidden');
-    } catch(e) { alert(e.message); }
-}
-
-// ... (Funciones soporte: esperarSupabase, cargarDatos, inicializarMapa [igual que antes pero con estilo oscuro]) ...
-async function esperarSupabase() { return new Promise(r => { const i = setInterval(() => { if (window.supabaseClient) { clearInterval(i); r(); } }, 100); }); }
-async function cargarDatos() {
-    const { data } = await window.supabaseClient.from('conductores').select('*, perfiles(nombre)').eq('perfil_id', usuario.id).single();
-    conductorId = data.id; conductorData = data;
-    document.getElementById('driverName').textContent = data.perfiles.nombre;
-    renderStatus(data.estado);
-}
-
+// DEFINIDA GLOBALMENTE
 function inicializarMapa() {
     if(!document.getElementById('map')) return;
     mapa = L.map('map', { zoomControl: false }).setView([15.5, -88], 13);
@@ -48,7 +23,44 @@ function inicializarMapa() {
     }
 }
 
-// --- ALERTA ---
+async function init() {
+    try {
+        await esperarSupabase();
+        const { data: { session } } = await window.supabaseClient.auth.getSession();
+        if (!session) return window.location.href = 'login.html';
+        usuario = session.user;
+
+        await cargarDatos();
+        inicializarMapa(); // Llama a la función global
+        inicializarSlider();
+        suscribirse();
+        await recuperarEstado();
+        cargarStats();
+
+        document.getElementById('loader').classList.add('hidden');
+    } catch(e) { alert(e.message); }
+}
+
+// ... Resto de funciones iguales ...
+async function esperarSupabase() { return new Promise(r => { const i = setInterval(() => { if (window.supabaseClient) { clearInterval(i); r(); } }, 100); }); }
+async function cargarDatos() {
+    const { data } = await window.supabaseClient.from('conductores').select('*, perfiles(nombre)').eq('perfil_id', usuario.id).single();
+    conductorId = data.id; conductorData = data;
+    document.getElementById('driverName').textContent = data.perfiles.nombre;
+    renderStatus(data.estado);
+}
+
+async function recuperarEstado() {
+    const { data } = await window.supabaseClient.from('carreras').select('*, clientes(nombre, telefono)').eq('conductor_id', conductorId).in('estado',['aceptada','en_camino','en_curso']).maybeSingle();
+    if(data) { carreraEnCurso = data; mostrarViaje(); }
+}
+
+function suscribirse() {
+    window.supabaseClient.channel('driver').on('postgres_changes', {event:'*', schema:'public', table:'carreras'}, payload => {
+        if (payload.eventType === 'INSERT' && payload.new.estado === 'buscando' && !carreraEnCurso) mostrarAlerta(payload.new);
+    }).subscribe();
+}
+
 function mostrarAlerta(c) {
     solicitudTemp = c;
     document.getElementById('alertPrice').textContent = 'L ' + c.precio;
@@ -56,20 +68,12 @@ function mostrarAlerta(c) {
     document.getElementById('distTotal').textContent = c.distancia_km + ' km';
     document.getElementById('alertOverlay').classList.add('active');
     document.getElementById('sound').play().catch(()=>{});
-    
-    // Calcular tiempo a recoger
-    if(miUbicacion) {
-        fetch(`https://router.project-osrm.org/route/v1/driving/${miUbicacion.lng},${miUbicacion.lat};${c.origen_lng},${c.origen_lat}?overview=false`)
-            .then(r=>r.json()).then(d=>{ if(d.routes?.[0]) document.getElementById('timeToPick').textContent = Math.ceil(d.routes[0].duration/60) + ' min'; });
-    }
-    // Reset slider
     document.getElementById('sliderThumb').style.transform = 'translateX(0)';
 }
 
 async function aceptar() {
     document.getElementById('sound').pause();
     const { data, error } = await window.supabaseClient.from('carreras').update({ conductor_id: conductorId, estado: 'aceptada', fecha_aceptacion: new Date() }).eq('id', solicitudTemp.id).is('conductor_id', null).select('*, clientes(nombre, telefono)').single();
-    
     if(error) { alert('Ganado por otro'); rechazar(); return; }
     carreraEnCurso = data;
     await window.supabaseClient.from('conductores').update({ estado: 'en_carrera' }).eq('id', conductorId);
@@ -84,7 +88,6 @@ function rechazar() {
     solicitudTemp = null;
 }
 
-// --- VIAJE ---
 function mostrarViaje() {
     document.getElementById('tripCard').style.display = 'block';
     const t = document.getElementById('tripTitle');
@@ -121,7 +124,6 @@ async function sendRate() {
     await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
     conductorData.estado = 'disponible';
     renderStatus('disponible');
-    
     document.getElementById('rateModal').style.display = 'none';
     document.getElementById('tripCard').style.display = 'none';
     if(rutaLayer) mapa.removeLayer(rutaLayer);
@@ -129,26 +131,12 @@ async function sendRate() {
     cargarStats();
 }
 
-// ... Resto de helpers (suscribirse, dibujarRuta, inicializarSlider, cargarStats) ...
-// Asegúrate de incluir la función recuperarEstado que faltaba
-async function recuperarEstado() {
-    const { data } = await window.supabaseClient.from('carreras').select('*, clientes(nombre, telefono)').eq('conductor_id', conductorId).in('estado',['aceptada','en_camino','en_curso']).maybeSingle();
-    if(data) { carreraEnCurso = data; mostrarViaje(); }
-}
-
-function suscribirse() {
-    window.supabaseClient.channel('driver').on('postgres_changes', {event:'*', schema:'public', table:'carreras'}, payload => {
-        if (payload.eventType === 'INSERT' && payload.new.estado === 'buscando' && !carreraEnCurso) mostrarAlerta(payload.new);
-    }).subscribe();
-}
-
-// SLIDER Y UTILS
 function inicializarSlider() {
-    const t = document.getElementById('sliderThumb');
-    let startX, w;
-    t.addEventListener('touchstart', e => { startX=e.touches[0].clientX; w=document.getElementById('slider').offsetWidth-50; });
+    const s = document.getElementById('slider'), t = document.getElementById('sliderThumb');
+    let drag=false, sx, w;
+    t.addEventListener('touchstart', e => { drag=true; sx=e.touches[0].clientX; w=document.getElementById('slider').offsetWidth-50; });
     window.addEventListener('touchmove', e => { 
-        let x = Math.min(w, Math.max(0, e.touches[0].clientX-startX));
+        let x = Math.min(w, Math.max(0, e.touches[0].clientX-sx));
         t.style.transform = `translateX(${x}px)`;
     });
     window.addEventListener('touchend', () => { 
@@ -188,7 +176,7 @@ function openWaze() {
     window.open(`https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`);
 }
 function callClient() { window.open(`tel:${carreraEnCurso.clientes?.telefono}`); }
-async function cancelar() { if(confirm('Cancelar?')) { await window.supabaseClient.from('carreras').update({estado:'cancelada_conductor'}).eq('id',carreraEnCurso.id); reset(); } }
+async function cancel() { if(confirm('Cancelar?')) { await window.supabaseClient.from('carreras').update({estado:'cancelada_conductor'}).eq('id',carreraEnCurso.id); reset(); } }
 async function logout() { await window.supabaseClient.auth.signOut(); window.location.href='login.html'; }
 
 window.addEventListener('load', init);
