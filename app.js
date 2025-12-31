@@ -1,5 +1,5 @@
 // ============================================
-// APP CONDUCTOR (FINAL FIX)
+// APP CONDUCTOR (FIX FINAL: REALTIME & ACCEPT)
 // ============================================
 
 console.log('=== INICIANDO APP CONDUCTOR ===');
@@ -28,10 +28,10 @@ async function init() {
         
         inicializarMapa();
         iniciarGPS();
-        inicializarSlider(); // Inicializar el botón deslizante
+        inicializarSlider();
         
         await cargarEstadoActual();
-        suscribirseACambios(); // Iniciar Realtime
+        suscribirseACambios();
         
         safeHide('loader');
         console.log('=== ✅ APP CONDUCTOR LISTA ===');
@@ -39,7 +39,7 @@ async function init() {
     } catch (error) {
         console.error('Error init:', error);
         safeHide('loader');
-        if (error.code !== 1) alert('Error al iniciar: ' + error.message);
+        if (error.code !== 1) alert('Error: ' + error.message);
     }
 }
 
@@ -50,7 +50,7 @@ async function esperarSupabase() {
         const interval = setInterval(() => {
             i++;
             if (window.supabaseClient) { clearInterval(interval); resolve(); }
-            else if (i > 50) { clearInterval(interval); reject(new Error('Timeout Conexión')); }
+            else if (i > 50) { clearInterval(interval); reject(new Error('Timeout DB')); }
         }, 100);
     });
 }
@@ -67,17 +67,16 @@ async function cargarDatosConductor() {
         .from('conductores').select('*, perfiles(nombre)').eq('perfil_id', usuario.id).maybeSingle();
 
     if (error || !data) { alert('No se encontró perfil de conductor.'); return; }
-    
     conductorId = data.id;
     conductorData = data;
     
     const elNombre = document.getElementById('driverName');
     if (elNombre && data.perfiles) elNombre.textContent = data.perfiles.nombre;
-
     actualizarUIEstado(data.estado);
 }
 
 function safeHide(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden'); }
+function safeText(id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; }
 
 // ============================================
 // 2. MAPA & GPS
@@ -97,14 +96,14 @@ function iniciarGPS() {
             miUbicacion = { lat: latitude, lng: longitude, heading: heading || 0 };
             actualizarMiMarcador();
             
-            // Actualizar DB
+            // Actualizar DB (Throttle simple)
             if (conductorData && conductorData.estado !== 'inactivo') {
                 window.supabaseClient.from('conductores')
                     .update({ latitud: latitude, longitud: longitude, rumbo: heading, ultima_actualizacion: new Date() })
                     .eq('id', conductorId).then();
             }
             
-            // Si no hay solicitud entrante, centrar mapa en mí
+            // Si no hay solicitud activa ni carrera, centrar en mí
             if (!solicitudActual && !carreraEnCurso) {
                  mapa.setView([latitude, longitude], 16, { animate: true });
             }
@@ -127,7 +126,7 @@ function actualizarMiMarcador() {
 }
 
 // ============================================
-// 3. ESTADOS Y REALTIME
+// 3. LOGICA Y REALTIME
 // ============================================
 
 async function cargarEstadoActual() {
@@ -157,59 +156,61 @@ function actualizarUIEstado(estado) {
 }
 
 function suscribirseACambios() {
-    console.log('📡 Suscribiendo a Realtime...');
-    window.supabaseClient
-        .channel('conductor-channel')
-        .on('postgres_changes', { 
-            event: '*', // Escuchar TODO (INSERT y UPDATE)
-            schema: 'public', 
-            table: 'carreras' 
-        }, (payload) => {
+    window.supabaseClient.channel('conductor-channel')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'carreras' }, (payload) => {
             const nueva = payload.new;
-            console.log('Cambio detectado:', payload.eventType, nueva.estado);
-            
-            // Caso 1: Nueva carrera buscando conductor
+            // Nueva carrera disponible
             if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && 
                 nueva.estado === 'buscando' && !nueva.conductor_id) {
                 recibirNuevaSolicitud(nueva);
                 cargarDisponibles();
             }
-            
-            // Caso 2: Carrera cancelada o tomada por otro
+            // Carrera tomada por otro o cancelada
             if (payload.eventType === 'UPDATE' && nueva.id === solicitudActual?.id) {
-                if (nueva.estado !== 'buscando' || (nueva.conductor_id && nueva.conductor_id !== conductorId)) {
-                    limpiarAlerta(); // Cierra el modal si ya no está disponible
-                    mostrarNotificacion('La solicitud expiró o fue tomada', 'info');
+                if (nueva.estado !== 'buscando' && nueva.conductor_id !== conductorId) {
+                    limpiarAlerta();
+                    alert('La solicitud ya no está disponible');
                 }
             }
-        })
-        .subscribe();
+        }).subscribe();
 }
 
 // ============================================
-// 4. GESTIÓN DE SOLICITUDES (ALERTA)
+// 4. ALERTA DE SOLICITUD & SLIDER
 // ============================================
 
-function recibirNuevaSolicitud(carrera) {
+async function recibirNuevaSolicitud(carrera) {
     if (conductorData.estado !== 'disponible' || carreraEnCurso) return;
-    // Si ya estoy viendo esta solicitud, no reiniciar
     if (solicitudActual && solicitudActual.id === carrera.id) return;
 
     solicitudActual = carrera;
     
-    // Sonido
+    // UI Básica
+    safeText('reqPrice', 'L ' + carrera.precio);
+    safeText('reqAddressOrigin', carrera.origen_direccion);
+    safeText('reqAddressDest', carrera.destino_direccion);
+    safeText('reqTripDist', carrera.distancia_km + ' km');
+    safeText('reqTripTime', carrera.tiempo_estimado_min);
+
+    // Calcular ruta hacia el cliente (Pickup)
+    safeText('reqPickupTime', 'Calculando...');
+    safeText('reqPickupDist', '...');
+    
+    if (miUbicacion) {
+        // Cálculo OSRM: Conductor -> Origen Pasajero
+        const routePickup = await obtenerRutaOSRM(miUbicacion, { lat: carrera.origen_lat, lng: carrera.origen_lng });
+        if (routePickup) {
+            const min = Math.round(routePickup.duration / 60);
+            const km = (routePickup.distance / 1000).toFixed(1);
+            safeText('reqPickupTime', min);
+            safeText('reqPickupDist', km + ' km');
+        }
+    }
+
+    // Audio y Vibración
     const audio = document.getElementById('alertSound');
     if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
     if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-
-    // UI
-    safeText('reqType', carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo');
-    safeText('reqAddress', carrera.origen_direccion);
-    safeText('reqPrice', 'L ' + carrera.precio);
-    if (miUbicacion) {
-        const d = UTILS.calcularDistancia(miUbicacion.lat, miUbicacion.lng, carrera.origen_lat, carrera.origen_lng);
-        safeText('reqDist', d.toFixed(1) + ' km');
-    }
 
     document.getElementById('requestOverlay').classList.add('active');
     
@@ -223,72 +224,62 @@ function recibirNuevaSolicitud(carrera) {
         if (timeLeft <= 0) rechazarSolicitudActual(true);
     }, 1000);
 
-    // Resetear Slider
     resetSlider();
-    // Mostrar Ruta
     mostrarRutaPreview(carrera);
 }
 
-function safeText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+// OSRM Helper
+async function obtenerRutaOSRM(start, end) {
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes[0]) return data.routes[0];
+    } catch(e) { console.error(e); }
+    return null;
+}
 
-// --- LÓGICA DEL BOTÓN DESLIZANTE (SWIPE) ---
+// SLIDER LOGIC
 function inicializarSlider() {
     const slider = document.getElementById('sliderContainer');
     const knob = document.getElementById('sliderKnob');
-    let isDragging = false;
-    let startX = 0;
-    let containerWidth = 0;
+    let isDragging = false, startX = 0, containerWidth = 0;
 
-    const startDrag = (e) => {
+    const start = (e) => {
         isDragging = true;
-        startX = (e.touches ? e.touches[0].clientX : e.clientX);
+        startX = e.touches ? e.touches[0].clientX : e.clientX;
         containerWidth = slider.offsetWidth - knob.offsetWidth;
-        knob.classList.add('active');
     };
-
-    const moveDrag = (e) => {
+    const move = (e) => {
         if (!isDragging) return;
-        e.preventDefault(); // Evitar scroll
-        let clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
         let x = clientX - startX;
-        if (x < 0) x = 0;
-        if (x > containerWidth) x = containerWidth;
-        knob.style.left = x + 5 + 'px'; // +5 padding
-        
-        // Opacidad del texto
-        document.querySelector('.slider-text').style.opacity = 1 - (x / containerWidth);
+        if (x < 0) x = 0; else if (x > containerWidth) x = containerWidth;
+        knob.style.transform = `translateX(${x}px)`;
+        document.querySelector('.slider-text').style.opacity = 1 - (x/containerWidth);
     };
-
-    const endDrag = (e) => {
+    const end = (e) => {
         if (!isDragging) return;
         isDragging = false;
-        knob.classList.remove('active');
-        
-        let clientX = (e.changedTouches ? e.changedTouches[0].clientX : e.clientX);
-        let x = clientX - startX;
-
-        // Si deslizó más del 90%
-        if (x > containerWidth * 0.9) {
-            knob.style.left = (containerWidth + 5) + 'px';
-            aceptarSolicitudActual(); // ACCIÓN
-        } else {
-            // Regresar
-            knob.style.left = '5px';
+        let x = new WebKitCSSMatrix(window.getComputedStyle(knob).transform).m41;
+        if (x > containerWidth * 0.9) aceptarSolicitudActual();
+        else {
+            knob.style.transform = 'translateX(0px)';
             document.querySelector('.slider-text').style.opacity = 1;
         }
     };
 
-    knob.addEventListener('mousedown', startDrag);
-    knob.addEventListener('touchstart', startDrag);
-    window.addEventListener('mousemove', moveDrag);
-    window.addEventListener('touchmove', moveDrag, { passive: false });
-    window.addEventListener('mouseup', endDrag);
-    window.addEventListener('touchend', endDrag);
+    knob.addEventListener('mousedown', start);
+    knob.addEventListener('touchstart', start);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move);
+    window.addEventListener('mouseup', end);
+    window.addEventListener('touchend', end);
 }
 
 function resetSlider() {
     const knob = document.getElementById('sliderKnob');
-    if(knob) knob.style.left = '5px';
+    if(knob) knob.style.transform = 'translateX(0px)';
     const txt = document.querySelector('.slider-text');
     if(txt) txt.style.opacity = 1;
 }
@@ -299,32 +290,27 @@ async function aceptarSolicitudActual() {
     limpiarAlerta();
 
     try {
-        // Validación extra: Verificar si ya tiene conductor antes de updatear
-        const { data: check } = await window.supabaseClient.from('carreras').select('conductor_id').eq('id', id).single();
-        if (check.conductor_id && check.conductor_id !== conductorId) {
-            alert('¡Demasiado tarde! Otro conductor tomó el viaje.');
-            cargarDisponibles();
-            return;
-        }
-
-        // Asignar
+        // CORRECCIÓN ERROR 406: Usar maybeSingle()
         const { data, error } = await window.supabaseClient
             .from('carreras')
             .update({ conductor_id: conductorId, estado: 'aceptada', fecha_aceptacion: new Date() })
             .eq('id', id)
-            .select().single();
+            .is('conductor_id', null)
+            .select()
+            .maybeSingle();
 
-        if (error) throw error;
-
-        carreraEnCurso = data;
-        await window.supabaseClient.from('conductores').update({ estado: 'en_carrera' }).eq('id', conductorId);
-        conductorData.estado = 'en_carrera';
-        mostrarPantallaViaje(data);
-
-    } catch (e) {
-        console.error(e);
-        alert('Error al aceptar viaje. Intenta de nuevo.');
-        cargarDisponibles();
+        if (error || !data) {
+            alert('Error: Otro conductor tomó el viaje o expiró.');
+            cargarDisponibles();
+        } else {
+            carreraEnCurso = data;
+            await window.supabaseClient.from('conductores').update({ estado: 'en_carrera' }).eq('id', conductorId);
+            conductorData.estado = 'en_carrera';
+            mostrarPantallaViaje(data);
+        }
+    } catch (e) { 
+        console.error(e); 
+        alert('Error de conexión'); 
     }
 }
 
@@ -343,36 +329,55 @@ function limpiarAlerta() {
 }
 
 // ============================================
-// 5. GESTIÓN VIAJE
+// 5. GESTIÓN VIAJE ACTIVO
 // ============================================
 
-function mostrarPantallaViaje(carrera) {
+async function mostrarPantallaViaje(carrera) {
     switchTab('curso');
     actualizarUIEstado('en_carrera');
     const container = document.getElementById('viajeActivoContainer');
     if (!container) return;
     
-    let titulo = 'Yendo a Recoger', accionBtn = '', color = '#f59e0b';
+    // Calcular ETA
+    let destinoCoords = (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') 
+        ? { lat: carrera.origen_lat, lng: carrera.origen_lng }
+        : { lat: carrera.destino_lat, lng: carrera.destino_lng };
+    
+    let etaText = '--:--';
+    if (miUbicacion) {
+        const route = await obtenerRutaOSRM(miUbicacion, destinoCoords);
+        if (route) {
+            const min = Math.round(route.duration / 60);
+            const arrival = new Date(new Date().getTime() + min*60000);
+            etaText = arrival.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+    }
+
+    let titulo = 'Yendo a Recoger', btnMain = '', color = '#f59e0b';
     
     if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
-        accionBtn = `<button class="btn btn-primary btn-block" onclick="reportarLlegada()">📍 ¡Ya llegué!</button>`;
-        if (miUbicacion) dibujarRuta(miUbicacion, {lat: carrera.origen_lat, lng: carrera.origen_lng}, '#f59e0b');
-    } else if (carrera.estado === 'en_curso') {
-        titulo = 'En Ruta al Destino'; color = '#10b981';
-        accionBtn = `<button class="btn btn-success btn-block" onclick="completarViaje()">🏁 Completar (Cobrar L ${carrera.precio})</button>`;
-        if (miUbicacion) dibujarRuta(miUbicacion, {lat: carrera.destino_lat, lng: carrera.destino_lng}, '#10b981');
+        btnMain = `<button class="btn btn-primary btn-block" onclick="reportarLlegada()">📍 ¡Ya llegué!</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, destinoCoords, '#f59e0b');
+    } else {
+        titulo = 'Llevando al Destino'; color = '#10b981';
+        btnMain = `<button class="btn btn-success btn-block" onclick="completarViaje()">🏁 Finalizar (Cobrar L ${carrera.precio})</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, destinoCoords, '#10b981');
     }
 
     container.innerHTML = `
         <div class="active-trip-card" style="border-left: 5px solid ${color}">
-            <h2 style="margin:0 0 1rem 0; color:${color}">${titulo}</h2>
+            <div class="eta-display">
+                <div class="eta-label">LLEGADA ESTIMADA</div>
+                <div class="eta-time">${etaText}</div>
+            </div>
+            <h3 style="margin:0 0 1rem 0; color:${color}">${titulo}</h3>
             <div class="step-indicator"><div class="step-circle">1</div><div><small>Recoger:</small><br><strong>${carrera.origen_direccion}</strong></div></div>
             <div class="step-indicator"><div class="step-circle">2</div><div><small>Destino:</small><br><strong>${carrera.destino_direccion}</strong></div></div>
             <div style="display:flex; gap:10px; margin: 1rem 0">
-                <button class="btn btn-secondary" style="flex:1" onclick="window.open('https://waze.com/ul?ll=${carrera.origen_lat},${carrera.origen_lng}&navigate=yes')">🗺️ Waze</button>
+                <button class="btn btn-secondary" style="flex:1" onclick="window.open('https://waze.com/ul?ll=${destinoCoords.lat},${destinoCoords.lng}&navigate=yes')">🗺️ Waze</button>
                 <button class="btn btn-secondary" style="flex:1" onclick="window.open('tel:+50400000000')">📞 Llamar</button>
             </div>
-            ${accionBtn}
+            ${btnMain}
             <button class="btn btn-danger btn-block mt-2" onclick="cancelarViaje()">⚠ Cancelar</button>
         </div>`;
 }
@@ -385,11 +390,10 @@ async function reportarLlegada() {
 }
 
 async function completarViaje() {
-    if(!confirm('¿Finalizar viaje?')) return;
+    if(!confirm(`¿Finalizar? Cobrar L ${carreraEnCurso.precio}`)) return;
     await window.supabaseClient.from('carreras').update({ estado: 'completada', fecha_completado: new Date() }).eq('id', carreraEnCurso.id);
     await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
     conductorData.estado = 'disponible';
-    
     alert(`Ganaste L ${carreraEnCurso.precio}`);
     carreraEnCurso = null; limpiarMapa(); actualizarUIEstado('disponible'); cargarDisponibles(); switchTab('disponibles');
 }
@@ -417,17 +421,15 @@ async function cargarDisponibles() {
         return;
     }
     
-    if(div) {
-        div.innerHTML = data.map(c => `
-            <div class="card mb-2" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})' style="background:white; border:1px solid #eee; padding:1rem; border-radius:0.5rem; margin-bottom:0.5rem">
-                <div style="display:flex; justify-content:space-between">
-                    <strong>${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
-                    <span style="color:#10b981; font-weight:bold">L ${c.precio}</span>
-                </div>
-                <p style="font-size:0.9em; margin:5px 0">${c.origen_direccion}</p>
-                <small style="color:#2563eb">Toca para ver detalles</small>
-            </div>`).join('');
-    }
+    div.innerHTML = data.map(c => `
+        <div class="card mb-2" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})' style="background:white; border:1px solid #eee; padding:1rem; border-radius:0.5rem; margin-bottom:0.5rem">
+            <div style="display:flex; justify-content:space-between">
+                <strong>${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
+                <span style="color:#10b981; font-weight:bold">L ${c.precio}</span>
+            </div>
+            <p style="font-size:0.9em; margin:5px 0">${c.origen_direccion}</p>
+            <small style="color:#2563eb">Toca para ver detalles</small>
+        </div>`).join('');
 }
 
 async function dibujarRuta(p1, p2, color) {
@@ -453,7 +455,7 @@ function mostrarRutaPreview(carrera) {
     const m2 = L.marker([carrera.destino_lat, carrera.destino_lng]).addTo(mapa);
     marcadoresRuta.push(m1, m2);
     const group = new L.featureGroup([m1, m2]);
-    mapa.fitBounds(group.getBounds(), { padding: [100,50] }); // Más padding arriba para ver mapa tras tarjeta
+    mapa.fitBounds(group.getBounds(), { padding: [100,50] });
 }
 
 function limpiarMapa() { marcadoresRuta.forEach(l => mapa.removeLayer(l)); marcadoresRuta = []; }
@@ -464,6 +466,14 @@ async function cerrarSesion() {
     window.location.href = 'login.html';
 }
 
-function mostrarNotificacion(m, t) { alert(m); }
+// Helpers globales
+window.toggleMenu = function() { const m = document.getElementById('sideMenu'); if(m) m.style.left = m.style.left === '0px' ? '-100%' : '0px'; };
+window.switchTab = function(t) {
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-disponibles').classList.add('hidden');
+    document.getElementById('tab-curso').classList.add('hidden');
+    document.getElementById('tab-'+t).classList.remove('hidden');
+};
 
 window.addEventListener('load', init);
