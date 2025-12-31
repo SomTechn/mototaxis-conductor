@@ -3,58 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Conductor Pro</title>
+    <title>Conductor</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="../shared/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        /* ESTILOS CONDUCTOR */
         body { font-family: 'Inter', sans-serif; background: #111827; margin: 0; height: 100vh; overflow: hidden; }
         #map { position: fixed; inset: 0; z-index: 1; }
 
-        /* HEADER FLOTANTE */
-        .top-bar { position: fixed; top: 1rem; left: 1rem; right: 1rem; z-index: 20; display: flex; justify-content: space-between; pointer-events: none; }
-        .menu-btn { pointer-events: auto; background: white; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: none; font-size: 1.25rem; cursor: pointer; }
-        .status-pill { pointer-events: auto; background: white; padding: 0 1.25rem; height: 44px; border-radius: 22px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.9rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); cursor: pointer; }
+        /* HEADER */
+        .header-bar { position: fixed; top: 1rem; left: 1rem; right: 1rem; z-index: 20; display: flex; justify-content: space-between; pointer-events: none; }
+        .menu-btn { pointer-events: auto; background: white; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.2rem; cursor: pointer; }
+        .status-pill { pointer-events: auto; background: white; padding: 0 1.2rem; height: 44px; border-radius: 22px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.9rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2); cursor: pointer; }
         .dot { width: 10px; height: 10px; border-radius: 50%; }
         .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
         .dot.offline { background: #9ca3af; }
         .dot.busy { background: #f59e0b; }
 
-        /* OVERLAY ALERTA */
-        #requestOverlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); display: none; flex-direction: column; justify-content: flex-end; }
-        #requestOverlay.active { display: flex; }
-        .req-card { background: white; border-radius: 24px 24px 0 0; padding: 2rem 1.5rem; animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
-        .req-title { text-align: center; font-size: 1.5rem; font-weight: 800; color: #111827; margin-bottom: 0.5rem; }
-        .req-price { text-align: center; font-size: 2.5rem; font-weight: 800; color: #10b981; margin-bottom: 2rem; }
-        .info-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-        .info-box { flex: 1; background: #f3f4f6; padding: 1rem; border-radius: 16px; text-align: center; }
-        .slider-btn { width: 100%; height: 60px; background: #111827; border-radius: 30px; display: flex; align-items: center; position: relative; overflow: hidden; margin-top: 1rem; }
-        .slider-thumb { width: 52px; height: 52px; background: #10b981; border-radius: 50%; position: absolute; left: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 1.5rem; cursor: grab; transition: transform 0.1s; }
-        .slider-text { width: 100%; text-align: center; color: #6b7280; font-weight: 600; pointer-events: none; }
+        /* BOTTOM SHEET */
+        .bottom-sheet { position: fixed; bottom: 0; left: 0; width: 100%; background: white; border-radius: 24px 24px 0 0; z-index: 50; padding: 1.5rem; box-shadow: 0 -4px 20px rgba(0,0,0,0.2); max-height: 85vh; overflow-y: auto; }
+        
+        /* TARJETA ESTADÍSTICAS */
+        .stats-row { display: flex; gap: 10px; margin-bottom: 1.5rem; }
+        .stat-card { flex: 1; background: #f9fafb; padding: 1rem; border-radius: 16px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-val { font-size: 1.5rem; font-weight: 800; color: #111827; }
+        .stat-label { font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase; }
 
-        /* PANEL VIAJE ACTIVO */
-        .trip-panel { position: fixed; bottom: 0; left: 0; width: 100%; background: white; border-radius: 24px 24px 0 0; box-shadow: 0 -4px 20px rgba(0,0,0,0.1); z-index: 50; padding: 1.5rem; transform: translateY(100%); transition: transform 0.3s; }
-        .trip-panel.active { transform: translateY(0); }
-        .action-btn { width: 100%; padding: 1.25rem; border-radius: 16px; border: none; font-weight: 700; font-size: 1.1rem; cursor: pointer; margin-top: 1rem; color: white; }
-        .btn-green { background: #10b981; } .btn-blue { background: #2563eb; }
+        /* LISTA SOLICITUDES */
+        .req-item { background: white; border: 1px solid #e5e7eb; border-radius: 16px; padding: 1rem; margin-bottom: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .req-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+        .tag { background: #eff6ff; color: var(--primary); padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+        .price { font-weight: 800; color: #10b981; font-size: 1.1rem; }
 
-        /* MENU LATERAL */
-        .drawer { position: fixed; top: 0; left: -100%; width: 80%; max-width: 300px; height: 100%; background: white; z-index: 200; transition: 0.3s; padding: 2rem; }
+        /* ALERTA NUEVA */
+        #alertOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; display: none; flex-direction: column; justify-content: flex-end; padding: 1.5rem; }
+        #alertOverlay.active { display: flex; animation: slideUp 0.3s; }
+        .alert-card { background: #1f2937; color: white; padding: 1.5rem; border-radius: 24px; border: 1px solid #374151; }
+        .slider-container { background: #111827; height: 60px; border-radius: 30px; position: relative; margin-top: 1.5rem; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        .slider-thumb { width: 50px; height: 50px; background: #10b981; border-radius: 50%; position: absolute; left: 5px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; cursor: grab; z-index: 2; }
+        
+        /* MODAL CALIFICAR CLIENTE */
+        .rating-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 150; display: none; align-items: center; justify-content: center; }
+        .rating-box { background: white; padding: 2rem; border-radius: 24px; width: 90%; max-width: 350px; text-align: center; }
+        .stars { font-size: 2.5rem; color: #e5e7eb; margin: 1rem 0; cursor: pointer; }
+        .star.active { color: #fbbf24; }
+
+        /* MENU DRAWER (Historial) */
+        .drawer { position: fixed; top: 0; left: -100%; width: 100%; height: 100%; background: white; z-index: 200; transition: 0.3s; padding: 2rem; overflow-y: auto; }
         .drawer.open { left: 0; }
-        .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 150; display: none; }
-        .drawer-overlay.open { display: block; }
-        .history-item { border-bottom: 1px solid #e5e7eb; padding: 1rem 0; }
+        .hist-item { padding: 1rem 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
 
-        .loader { position: fixed; inset: 0; background: white; z-index: 999; display: flex; align-items: center; justify-content: center; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div id="loader" class="loader">Conectando...</div>
-
-    <div class="top-bar">
-        <button class="menu-btn" onclick="toggleDrawer()">☰</button>
+    
+    <div class="header-bar">
+        <button class="menu-btn" onclick="toggleDrawer()">📜</button>
         <div class="status-pill" onclick="toggleEstado()">
             <div id="statusDot" class="dot offline"></div>
             <span id="statusText">Offline</span>
@@ -63,72 +70,79 @@
 
     <div id="map"></div>
 
-    <div id="requestOverlay">
-        <div class="req-card">
-            <div class="req-title">Nueva Solicitud</div>
-            <div class="req-price" id="reqPrice">L 0</div>
-            <div class="info-row">
-                <div class="info-box">
-                    <small>Recoger en</small>
-                    <div style="font-weight:700" id="reqDist">0 km</div>
-                </div>
-                <div class="info-box">
-                    <small>Viaje Total</small>
-                    <div style="font-weight:700" id="reqTotalDist">0 km</div>
-                </div>
+    <div class="bottom-sheet" id="mainPanel">
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-val" id="todayEarnings">L 0</div>
+                <div class="stat-label">Ganancia Hoy</div>
             </div>
-            <div style="background:#f9fafb;padding:1rem;border-radius:12px;margin-bottom:1rem">
-                <strong>📍 Recoger:</strong> <span id="reqAddress">...</span>
+            <div class="stat-card">
+                <div class="stat-val" id="todayTrips">0</div>
+                <div class="stat-label">Viajes</div>
             </div>
-            <div class="slider-btn" id="slider">
-                <div class="slider-text">DESLIZA PARA ACEPTAR</div>
+        </div>
+
+        <h3 style="margin: 0 0 1rem 0">Solicitudes</h3>
+        <div id="requestsList">
+            <p style="text-align:center; color:#9ca3af; padding:2rem">Esperando viajes...</p>
+        </div>
+        
+        <div id="activeTripCard" class="hidden">
+            <div style="background:#eff6ff; border:1px solid #bfdbfe; padding:1rem; border-radius:16px;">
+                <h2 style="margin:0 0 0.5rem 0; color:#2563eb" id="tripStatusTitle">En Curso</h2>
+                <p><strong>📍 Destino:</strong> <span id="tripDest">...</span></p>
+                <button id="tripBtn" class="btn-primary" style="width:100%; padding:1rem; background:#2563eb; color:white; border:none; border-radius:12px; font-weight:bold; margin-top:1rem" onclick="accionViaje()">Acción</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="alertOverlay">
+        <div class="alert-card">
+            <h2 style="text-align:center; margin:0">Nueva Solicitud</h2>
+            <div style="text-align:center; font-size:2.5rem; font-weight:800; color:#10b981; margin:1rem 0" id="alertPrice">L 0</div>
+            <div style="background:#374151; padding:1rem; border-radius:12px; margin-bottom:1rem">
+                <div style="color:#9ca3af; font-size:0.8rem">RECOGER EN</div>
+                <div style="font-weight:600" id="alertAddress">...</div>
+                <div style="color:#60a5fa; margin-top:5px" id="alertDist">Calculando...</div>
+            </div>
+            <div class="slider-container" id="slider">
+                <div style="color:#9ca3af; font-weight:bold; pointer-events:none">DESLIZA PARA ACEPTAR</div>
                 <div class="slider-thumb" id="sliderThumb">➜</div>
             </div>
-            <button onclick="rechazarSolicitud()" style="width:100%;padding:1rem;background:none;border:none;color:#ef4444;font-weight:600;margin-top:1rem">Rechazar</button>
+            <button onclick="rechazar()" style="width:100%; padding:1rem; background:none; border:1px solid #ef4444; color:#ef4444; border-radius:12px; font-weight:bold; margin-top:1rem">Rechazar</button>
         </div>
     </div>
 
-    <div id="tripPanel" class="trip-panel">
-        <h2 id="tripTitle" style="margin:0 0 1rem 0">Yendo a Recoger</h2>
-        <div style="display:flex;gap:1rem;margin-bottom:1.5rem">
-            <div style="background:#f3f4f6;padding:1rem;border-radius:12px;flex:1">
-                <div style="font-size:0.8rem;color:#6b7280">CLIENTE</div>
-                <div style="font-weight:700" id="tripClient">...</div>
+    <div id="rateModal" class="rating-modal">
+        <div class="rating-box">
+            <h3>Viaje Finalizado</h3>
+            <p>Califica al cliente</p>
+            <div class="stars">
+                <span class="star" onclick="rate(1)">★</span><span class="star" onclick="rate(2)">★</span>
+                <span class="star" onclick="rate(3)">★</span><span class="star" onclick="rate(4)">★</span><span class="star" onclick="rate(5)">★</span>
             </div>
-            <a id="btnCall" href="#" style="background:#dbeafe;width:50px;display:flex;align-items:center;justify-content:center;border-radius:12px;text-decoration:none;font-size:1.5rem">📞</a>
+            <button onclick="enviarRating()" style="width:100%; padding:1rem; background:#10b981; color:white; border:none; border-radius:12px; font-weight:bold">Enviar</button>
         </div>
-        <div style="background:#f9fafb;padding:1rem;border-radius:12px;margin-bottom:1rem">
-            <strong>📍 Destino:</strong> <span id="tripDest">...</span>
-        </div>
-        <button id="tripActionBtn" class="action-btn btn-blue" onclick="accionViaje()">Llegué</button>
     </div>
 
-    <div class="drawer-overlay" onclick="toggleDrawer()"></div>
-    <div class="drawer" id="drawer">
-        <h2>Mi Perfil</h2>
-        <h3 id="driverName" style="color:#6b7280;margin-top:0">...</h3>
-        <div style="margin-top:2rem">
-            <h4>Ganancias Hoy</h4>
-            <div style="font-size:2rem;font-weight:800;color:#10b981" id="gananciasHoy">L 0</div>
+    <div id="drawer" class="drawer">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem">
+            <h2>Historial</h2>
+            <button onclick="toggleDrawer()" style="font-size:1.5rem; background:none; border:none">✕</button>
         </div>
-        <div style="margin-top:2rem">
-            <h4>Historial Reciente</h4>
-            <div id="historialLista"></div>
-        </div>
-        <button onclick="cerrarSesion()" style="margin-top:auto;width:100%;padding:1rem;background:#fee2e2;color:#dc2626;border:none;border-radius:12px;font-weight:bold;margin-top:3rem">Cerrar Sesión</button>
+        <div id="fullHistory">Cargando...</div>
+        <button onclick="cerrarSesion()" style="width:100%; padding:1rem; margin-top:2rem; background:#fee2e2; color:#dc2626; border:none; border-radius:12px; font-weight:bold">Cerrar Sesión</button>
     </div>
 
-    <audio id="alertSound" loop src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a"></audio>
+    <audio id="sound" loop src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a"></audio>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
     <script src="../shared/config.js"></script>
     <script src="app.js"></script>
     <script>
-        function toggleDrawer() { 
-            document.getElementById('drawer').classList.toggle('open');
-            document.querySelector('.drawer-overlay').classList.toggle('open');
-        }
+        function toggleDrawer() { document.getElementById('drawer').classList.toggle('open'); }
+        function rate(n) { window.currentRating = n; document.querySelectorAll('.star').forEach((s,i)=>s.classList.toggle('active', i<n)); }
     </script>
 </body>
 </html>
