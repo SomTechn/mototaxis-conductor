@@ -1,5 +1,5 @@
 // ============================================
-// APP CONDUCTOR (Nombre archivo: app.js)
+// APP CONDUCTOR (VERSIÓN BLINDADA)
 // ============================================
 
 console.log('=== INICIANDO APP CONDUCTOR ===');
@@ -20,7 +20,7 @@ let marcadoresRuta = [];
 
 async function init() {
     try {
-        await esperarSupabase();
+        await esperarSupabase(); // Esperar conexión DB
         const sesionValida = await verificarSesion();
         if (!sesionValida) return;
         
@@ -32,27 +32,39 @@ async function init() {
         await cargarEstadoActual();
         suscribirseACambios();
         
-        safeHide('loader');
+        safeHide('loader'); // Ocultar pantalla de carga
         console.log('=== ✅ APP CONDUCTOR LISTA ===');
         
     } catch (error) {
         console.error('Error init:', error);
         safeHide('loader');
-        if (error.code !== 1) alert('Error: ' + error.message);
+        // Mostrar alerta clara al usuario si algo falla
+        if (error.code !== 1) alert('Error al iniciar: ' + error.message);
     }
 }
 
+// Función robusta para esperar que config.js cargue
 async function esperarSupabase() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        // Si ya está listo, continuar
+        if (window.supabaseClient) { resolve(); return; }
+        
+        let intentos = 0;
         const interval = setInterval(() => {
-            if (window.supabaseClient) { clearInterval(interval); resolve(); }
+            intentos++;
+            if (window.supabaseClient) {
+                clearInterval(interval);
+                resolve();
+            } else if (intentos >= 50) { // 5 segundos max
+                clearInterval(interval);
+                reject(new Error('No se pudo conectar a la base de datos. Verifica tu conexión o el archivo config.js'));
+            }
         }, 100);
     });
 }
 
 async function verificarSesion() {
     const { data: { session }, error } = await window.supabaseClient.auth.getSession();
-    // CAMBIO: Redirección a login.html (sin prefijo)
     if (!session || error) { window.location.href = 'login.html'; return false; }
     usuario = session.user;
     return true;
@@ -66,14 +78,14 @@ async function cargarDatosConductor() {
         .maybeSingle();
 
     if (error || !data) { 
-        console.error('Error datos conductor:', error);
-        alert('No se encontró perfil de conductor vinculado.'); 
+        alert('Error: No se encontró tu perfil de conductor.'); 
         return; 
     }
     
     conductorId = data.id;
     conductorData = data;
     
+    // CORRECCIÓN: Verificación segura antes de escribir nombre
     const elNombre = document.getElementById('driverName');
     if (elNombre && data.perfiles) {
         elNombre.textContent = data.perfiles.nombre;
@@ -117,7 +129,7 @@ function iniciarGPS() {
                  mapa.setView([latitude, longitude], 16, { animate: true });
             }
         },
-        (err) => console.warn('GPS Error:', err),
+        (err) => console.warn('GPS:', err),
         { enableHighAccuracy: true, maximumAge: 0 }
     );
 }
@@ -133,7 +145,6 @@ function actualizarMiMarcador() {
             </svg>
         </div>
     `;
-    
     const icon = L.divIcon({ html: iconHtml, className: 'rotating-marker', iconSize: [40,40], iconAnchor: [20,20] });
     
     if (miMarker) {
@@ -149,11 +160,11 @@ async function actualizarUbicacionDB(lat, lng, heading) {
         await window.supabaseClient.from('conductores')
             .update({ latitud: lat, longitud: lng, rumbo: heading, ultima_actualizacion: new Date() })
             .eq('id', conductorId);
-    } catch (e) { console.warn('Error update GPS DB'); }
+    } catch (e) {}
 }
 
 // ============================================
-// 3. GESTIÓN DE ESTADOS Y CARRERAS
+// 3. ESTADOS Y CARRERAS
 // ============================================
 
 async function cargarEstadoActual() {
@@ -183,20 +194,19 @@ async function toggleEstado() {
 function actualizarUIEstado(estado) {
     const badge = document.getElementById('statusBadge');
     const text = document.getElementById('statusText');
+    if (!badge || !text) return;
+
+    badge.className = 'status-header ' + (estado === 'disponible' ? 'status-online' : 'status-busy');
+    text.textContent = estado === 'disponible' ? 'En Línea' : 'Desconectado';
     
-    if (badge && text) {
-        badge.className = 'status-header ' + (estado === 'disponible' ? 'status-online' : 'status-busy');
-        text.textContent = estado === 'disponible' ? 'En Línea' : 'Desconectado';
-        
-        if (estado === 'en_carrera') {
-            text.textContent = 'En Viaje';
-            badge.className = 'status-header status-busy';
-        }
+    if (estado === 'en_carrera') {
+        text.textContent = 'En Viaje';
+        badge.className = 'status-header status-busy';
     }
 }
 
 // ============================================
-// 4. FLUJO DE NUEVA SOLICITUD
+// 4. FLUJO DE SOLICITUD
 // ============================================
 
 function recibirNuevaSolicitud(carrera) {
@@ -204,6 +214,7 @@ function recibirNuevaSolicitud(carrera) {
 
     solicitudActual = carrera;
     
+    // Alerta visual y sonora
     const audio = document.getElementById('alertSound');
     if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
     if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
@@ -245,18 +256,13 @@ async function aceptarSolicitudActual() {
     try {
         const { data, error } = await window.supabaseClient
             .from('carreras')
-            .update({ 
-                conductor_id: conductorId,
-                estado: 'aceptada',
-                fecha_aceptacion: new Date()
-            })
+            .update({ conductor_id: conductorId, estado: 'aceptada', fecha_aceptacion: new Date() })
             .eq('id', id)
             .is('conductor_id', null)
-            .select()
-            .single();
+            .select().single();
 
         if (error || !data) {
-            alert('Otro conductor tomó el viaje 😞');
+            alert('Otro conductor tomó el viaje.');
             cargarDisponibles();
         } else {
             carreraEnCurso = data;
@@ -283,7 +289,7 @@ function limpiarAlerta() {
 }
 
 // ============================================
-// 5. GESTIÓN DE VIAJE
+// 5. GESTIÓN VIAJE
 // ============================================
 
 function mostrarPantallaViaje(carrera) {
@@ -330,22 +336,14 @@ function mostrarPantallaViaje(carrera) {
 
 async function reportarLlegada() {
     if(!confirm('¿El pasajero abordó?')) return;
-    
-    await window.supabaseClient.from('carreras')
-        .update({ estado: 'en_curso', fecha_abordaje: new Date() })
-        .eq('id', carreraEnCurso.id);
-        
+    await window.supabaseClient.from('carreras').update({ estado: 'en_curso', fecha_abordaje: new Date() }).eq('id', carreraEnCurso.id);
     carreraEnCurso.estado = 'en_curso';
     mostrarPantallaViaje(carreraEnCurso);
 }
 
 async function completarViaje() {
     if(!confirm(`¿Cobrar L ${carreraEnCurso.precio}?`)) return;
-    
-    await window.supabaseClient.from('carreras')
-        .update({ estado: 'completada', fecha_completado: new Date() })
-        .eq('id', carreraEnCurso.id);
-        
+    await window.supabaseClient.from('carreras').update({ estado: 'completada', fecha_completado: new Date() }).eq('id', carreraEnCurso.id);
     await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
     conductorData.estado = 'disponible';
     
@@ -359,10 +357,8 @@ async function completarViaje() {
 
 async function cancelarViaje() {
     if(!confirm('¿Cancelar viaje?')) return;
-    
     await window.supabaseClient.from('carreras').update({ estado: 'cancelada_conductor' }).eq('id', carreraEnCurso.id);
     await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
-    
     conductorData.estado = 'disponible';
     carreraEnCurso = null;
     limpiarMapa();
@@ -393,7 +389,7 @@ async function cargarDisponibles() {
     
     if(div) {
         div.innerHTML = data.map(c => `
-            <div class="card mb-2" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})'>
+            <div class="card mb-2" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})' style="background:white; border:1px solid #eee; padding:1rem; border-radius:0.5rem; margin-bottom:0.5rem">
                 <div style="display:flex; justify-content:space-between">
                     <strong>${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
                     <span style="color:#10b981; font-weight:bold">L ${c.precio}</span>
@@ -409,17 +405,13 @@ function suscribirseACambios() {
     window.supabaseClient
         .channel('conductor-channel')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'carreras', filter: 'estado=eq.buscando' }, 
-        (payload) => {
-            recibirNuevaSolicitud(payload.new);
-            cargarDisponibles();
-        })
+        (payload) => { recibirNuevaSolicitud(payload.new); cargarDisponibles(); })
         .subscribe();
 }
 
 async function dibujarRuta(p1, p2, color) {
     limpiarMapa();
     if(!mapa) return;
-    
     const m1 = L.marker([p1.lat, p1.lng]).addTo(mapa);
     const m2 = L.marker([p2.lat, p2.lng]).addTo(mapa);
     marcadoresRuta.push(m1, m2);
@@ -433,7 +425,7 @@ async function dibujarRuta(p1, p2, color) {
             marcadoresRuta.push(ruta);
             mapa.fitBounds(ruta.getBounds(), { padding: [50,50] });
         }
-    } catch(e) { console.error('Error ruta', e); }
+    } catch(e) {}
 }
 
 function mostrarRutaPreview(carrera) {
@@ -441,7 +433,6 @@ function mostrarRutaPreview(carrera) {
     const m1 = L.marker([carrera.origen_lat, carrera.origen_lng]).addTo(mapa);
     const m2 = L.marker([carrera.destino_lat, carrera.destino_lng]).addTo(mapa);
     marcadoresRuta.push(m1, m2);
-    
     const group = new L.featureGroup([m1, m2]);
     mapa.fitBounds(group.getBounds(), { padding: [50,50] });
 }
@@ -454,8 +445,18 @@ function limpiarMapa() {
 async function cerrarSesion() {
     if(!confirm('¿Salir?')) return;
     await window.supabaseClient.auth.signOut();
-    // CAMBIO: Redirección sin prefijo
     window.location.href = 'login.html';
 }
+
+// Helpers globales
+window.toggleMenu = function() { const m = document.getElementById('sideMenu'); if(m) m.style.left = m.style.left === '0px' ? '-100%' : '0px'; };
+window.toggleSheet = function() {};
+window.switchTab = function(t) {
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-disponibles').classList.add('hidden');
+    document.getElementById('tab-curso').classList.add('hidden');
+    document.getElementById('tab-'+t).classList.remove('hidden');
+};
 
 window.addEventListener('load', init);
