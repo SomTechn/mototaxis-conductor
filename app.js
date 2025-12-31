@@ -1,5 +1,5 @@
 // ============================================
-// APP CONDUCTOR (FIX 406 & OSRM)
+// APP CONDUCTOR (FIX DATOS NULL)
 // ============================================
 
 console.log('=== INICIANDO APP CONDUCTOR ===');
@@ -113,7 +113,7 @@ function actualizarMiMarcador() {
 }
 
 // ============================================
-// 3. ESTADOS & REALTIME
+// 3. LOGICA Y REALTIME
 // ============================================
 
 async function cargarEstadoActual() {
@@ -146,13 +146,11 @@ function suscribirseACambios() {
     window.supabaseClient.channel('conductor-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'carreras' }, (payload) => {
             const nueva = payload.new;
-            // Nueva carrera
             if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && 
                 nueva.estado === 'buscando' && !nueva.conductor_id) {
                 recibirNuevaSolicitud(nueva);
                 cargarDisponibles();
             }
-            // Carrera tomada/cancelada
             if (payload.eventType === 'UPDATE' && nueva.id === solicitudActual?.id) {
                 if (nueva.estado !== 'buscando' && nueva.conductor_id !== conductorId) {
                     limpiarAlerta();
@@ -172,24 +170,31 @@ async function recibirNuevaSolicitud(carrera) {
 
     solicitudActual = carrera;
     
-    // Audio
     const audio = document.getElementById('alertSound');
     if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
     if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
 
-    // UI Básica
-    safeText('reqType', carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo');
-    safeText('reqAddressOrigin', carrera.origen_direccion);
-    safeText('reqAddressDest', carrera.destino_direccion);
-    safeText('reqPrice', 'L ' + carrera.precio);
-    safeText('reqTripDist', (carrera.distancia_km||0) + ' km');
-    safeText('reqTripTime', (carrera.tiempo_estimado_min||0));
+    // --- FIX DATOS VISUALES ---
+    // Asegurar valores por defecto si vienen nulos
+    const precio = parseFloat(carrera.precio || 0).toFixed(2);
+    const dist = (carrera.distancia_km || 0) + ' km';
+    const tiempo = (carrera.tiempo_estimado_min || 0) + ' min';
+    const origen = carrera.origen_direccion || 'Ubicación desconocida';
+    const destino = carrera.destino_direccion || 'Destino desconocido';
 
-    // UI Cálculo OSRM (Conductor -> Origen)
-    safeText('reqPickupTime', '...');
-    safeText('reqPickupDist', '...');
+    safeText('reqType', carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo');
+    safeText('reqAddressOrigin', origen);
+    safeText('reqAddressDest', destino);
+    safeText('reqPrice', 'L ' + precio);
+    safeText('reqTripDist', dist);
+    safeText('reqTripTime', tiempo);
+
+    // Resetear valores de "Recogida" mientras se calculan
+    safeText('reqPickupTime', '--');
+    safeText('reqPickupDist', '--');
     
-    if (miUbicacion) {
+    // Cálculo OSRM (Conductor -> Origen)
+    if (miUbicacion && carrera.origen_lat && carrera.origen_lng) {
         const rutaPickup = await obtenerRutaOSRM(miUbicacion, { lat: carrera.origen_lat, lng: carrera.origen_lng });
         if (rutaPickup) {
             const min = Math.round(rutaPickup.duration / 60);
@@ -201,7 +206,6 @@ async function recibirNuevaSolicitud(carrera) {
 
     document.getElementById('requestOverlay').classList.add('active');
     
-    // Timer
     let timeLeft = 30;
     const timerEl = document.getElementById('reqTimer');
     if(timerSolicitud) clearInterval(timerSolicitud);
@@ -257,10 +261,11 @@ function inicializarSlider() {
 function resetSlider() {
     const k = document.getElementById('sliderKnob');
     if(k) k.style.transform = 'translateX(0px)';
-    document.querySelector('.slider-text').style.opacity = 1;
+    const t = document.querySelector('.slider-text');
+    if(t) t.style.opacity = 1;
 }
 
-// ACEPTAR (CORREGIDO ERROR 406)
+// ACEPTAR
 async function aceptarSolicitudActual() {
     if (!solicitudActual) return;
     const id = solicitudActual.id;
@@ -273,10 +278,10 @@ async function aceptarSolicitudActual() {
             .eq('id', id)
             .is('conductor_id', null)
             .select()
-            .maybeSingle(); // FIX 406
+            .maybeSingle();
 
         if (error || !data) {
-            alert('Error: Otro conductor tomó el viaje.');
+            alert('Error: Otro conductor tomó el viaje o expiró.');
             cargarDisponibles();
         } else {
             carreraEnCurso = data;
@@ -291,7 +296,8 @@ function rechazarSolicitudActual() { limpiarAlerta(); cargarDisponibles(); }
 
 function limpiarAlerta() {
     document.getElementById('requestOverlay').classList.remove('active');
-    document.getElementById('alertSound').pause();
+    const audio = document.getElementById('alertSound');
+    if (audio) audio.pause();
     clearInterval(timerSolicitud);
     solicitudActual = null;
     limpiarMapa();
@@ -312,9 +318,9 @@ async function mostrarPantallaViaje(carrera) {
         ? { lat: carrera.origen_lat, lng: carrera.origen_lng }
         : { lat: carrera.destino_lat, lng: carrera.destino_lng };
     
-    let etaText = '--:--', route = null;
+    let etaText = '--:--';
     if (miUbicacion) {
-        route = await obtenerRutaOSRM(miUbicacion, dest);
+        const route = await obtenerRutaOSRM(miUbicacion, dest);
         if (route) {
             const min = Math.round(route.duration / 60);
             etaText = new Date(Date.now() + min*60000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
