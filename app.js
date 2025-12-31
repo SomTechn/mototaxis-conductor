@@ -1,1497 +1,490 @@
 // ============================================
-// VARIABLES GLOBALES
+// APP CONDUCTOR - UBER STYLE V2
 // ============================================
+
+console.log('=== INICIANDO MODO CONDUCTOR ===');
 
 let mapa, usuario, conductorId, conductorData;
 let miUbicacion = null;
 let miMarker = null;
-let gpsInterval = null;
+let gpsWatchId = null;
 let trackingInterval = null;
-let timers = {};
-let marcadoresColectivas = [];
+let solicitudActual = null; // Para guardar la solicitud entrante temporalmente
+let timerSolicitud = null;
 let carreraEnCurso = null;
-let ultimaDireccion = 0;
+let marcadoresRuta = [];
 
 // ============================================
-// INICIALIZACIÓN
+// 1. INICIALIZACIÓN
 // ============================================
 
 async function init() {
-    console.log('=== INICIANDO APP CONDUCTOR (UBER STYLE) ===');
-    
     try {
-        // Esperar Supabase
-        console.log('1. Esperando Supabase...');
-        let intentos = 0;
-        while (!window.supabase?.auth && intentos < 50) {
-            await new Promise(r => setTimeout(r, 100));
-            intentos++;
-        }
+        await esperarSupabase();
+        const sesionValida = await verificarSesion();
+        if (!sesionValida) return;
         
-        if (!window.supabase?.auth) {
-            throw new Error('No se pudo conectar a Supabase');
-        }
-        console.log('✅ Supabase conectado');
+        await cargarDatosConductor();
         
-        // Verificar sesión
-        console.log('2. Verificando sesión...');
-        const { data: { session }, error: sessionError } = await window.supabase.auth.getSession();
+        inicializarMapa();
+        iniciarGPS();
         
-        if (sessionError) throw sessionError;
-        if (!session) {
-            window.location.href = 'login.html';
-            return;
-        }
-        
-        usuario = session.user;
-        console.log('✅ Sesión:', usuario.email);
-        
-        // Cargar perfil
-        console.log('3. Cargando perfil...');
-        const { data: perfil, error: perfilError } = await window.supabase
-            .from('perfiles')
-            .select('nombre, rol')
-            .eq('id', usuario.id)
-            .single();
-        
-        if (perfilError) throw perfilError;
-        if (!perfil || perfil.rol !== 'conductor') {
-            alert('No tienes permisos de conductor');
-            await window.supabase.auth.signOut();
-            window.location.href = 'login.html';
-            return;
-        }
-        
-        console.log('✅ Perfil:', perfil.nombre);
-        
-        // Obtener datos de conductor
-        console.log('4. Cargando datos de conductor...');
-        const { data: conductor, error: conductorError } = await window.supabase
-            .from('conductores')
-            .select('*')
-            .eq('perfil_id', usuario.id)
-            .single();
-        
-        if (conductorError) throw conductorError;
-        if (!conductor) throw new Error('Registro de conductor no encontrado');
-        
-        conductorId = conductor.id;
-        conductorData = conductor;
-        console.log('✅ Conductor ID:', conductorId);
-        
-        // Actualizar UI
-        actualizarEstadoUI(conductor.estado);
-        
-        // Inicializar
-        await inicializarMapa();
-        inicializarGPS();
-        inicializarGestos();
-        await cargarTodasCarreras();
-        await cargarEstadisticas();
+        // Cargar estado inicial
+        await cargarEstadoActual();
         suscribirseACambios();
         
-        console.log('=== ✅ APP INICIADA ===');
         document.getElementById('loader').classList.add('hidden');
+        console.log('=== ✅ APP CONDUCTOR LISTA ===');
         
     } catch (error) {
-        console.error('=== ❌ ERROR EN INIT ===');
-        console.error(error);
-        alert('Error al iniciar: ' + error.message);
-        document.getElementById('loader').classList.add('hidden');
+        console.error('Error init:', error);
+        alert('Error: ' + error.message);
     }
 }
 
-// ============================================
-// MAPA
-// ============================================
-
-async function inicializarMapa() {
-    try {
-        mapa = L.map('map', {
-            zoomControl: false
-        }).setView([14.0723, -87.1921], 13);
-        
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap',
-            maxZoom: 18
-        }).addTo(mapa);
-        
-        L.control.zoom({
-            position: 'bottomright'
-        }).addTo(mapa);
-        
-        setTimeout(() => mapa.invalidateSize(), 500);
-        console.log('✅ Mapa inicializado');
-        return true;
-    } catch (error) {
-        console.error('Error inicializando mapa:', error);
-        throw error;
-    }
+async function esperarSupabase() {
+    return new Promise((resolve) => {
+        const interval = setInterval(() => {
+            if (window.supabaseClient) { clearInterval(interval); resolve(); }
+        }, 100);
+    });
 }
 
-// ============================================
-// GPS CON ROTACIÓN
-// ============================================
+async function verificarSesion() {
+    const { data: { session }, error } = await window.supabaseClient.auth.getSession();
+    if (!session || error) { window.location.href = 'conductor-login.html'; return false; }
+    usuario = session.user;
+    return true;
+}
 
-function inicializarGPS() {
-    if (!navigator.geolocation) {
-        console.warn('GPS no disponible');
-        return;
-    }
+async function cargarDatosConductor() {
+    const { data, error } = await window.supabaseClient
+        .from('conductores')
+        .select('*, perfiles(nombre)')
+        .eq('perfil_id', usuario.id)
+        .maybeSingle();
+
+    if (error || !data) { alert('No se encontró perfil de conductor'); return; }
     
-    navigator.geolocation.getCurrentPosition(
+    conductorId = data.id;
+    conductorData = data;
+    document.getElementById('driverName').textContent = data.perfiles.nombre;
+    actualizarUIEstado(data.estado);
+}
+
+// ============================================
+// 2. MAPA Y GPS
+// ============================================
+
+function inicializarMapa() {
+    mapa = L.map('map', { zoomControl: false }).setView([15.5048, -88.0250], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapa);
+}
+
+function iniciarGPS() {
+    if (!navigator.geolocation) return;
+    
+    gpsWatchId = navigator.geolocation.watchPosition(
         (pos) => {
-            miUbicacion = {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                heading: pos.coords.heading || 0
-            };
+            const { latitude, longitude, heading } = pos.coords;
+            miUbicacion = { lat: latitude, lng: longitude, heading: heading || 0 };
             
-            console.log('✅ GPS activado:', miUbicacion);
-            mapa.setView([miUbicacion.lat, miUbicacion.lng], 15);
+            actualizarMiMarcador();
             
-            // Crear marcador rotable
-            crearMarcadorRotable();
+            // Si estoy "Disponible" o "En Carrera", actualizo DB
+            if (conductorData && conductorData.estado !== 'inactivo') {
+                actualizarUbicacionDB(latitude, longitude, heading);
+            }
             
-            iniciarActualizacionGPS();
-            guardarUbicacionEnBD();
+            // Si no tengo viaje y entra una solicitud, no muevo el mapa (para que vea la ruta)
+            // Si tengo viaje, centro en mí
+            if (carreraEnCurso) {
+                 mapa.setView([latitude, longitude], 17, { animate: true });
+            } else if (!solicitudActual && conductorData.estado === 'disponible') {
+                 mapa.setView([latitude, longitude], 16, { animate: true });
+            }
         },
-        (error) => {
-            console.error('Error GPS:', error);
-        },
-        { 
-            enableHighAccuracy: true, 
-            timeout: 10000
-        }
+        (err) => console.warn(err),
+        { enableHighAccuracy: true, maximumAge: 0 }
     );
 }
 
-function crearMarcadorRotable() {
+function actualizarMiMarcador() {
+    if (!miUbicacion) return;
+    
+    // Icono flecha rotada
     const iconHtml = `
-        <div style="transform: rotate(${ultimaDireccion}deg); transition: transform 0.3s ease;">
+        <div style="transform: rotate(${miUbicacion.heading}deg); transition: transform 0.5s;">
             <svg width="40" height="40" viewBox="0 0 40 40">
-                <circle cx="20" cy="20" r="18" fill="#2563eb" opacity="0.3"/>
-                <circle cx="20" cy="20" r="12" fill="#2563eb"/>
-                <path d="M 20 8 L 26 24 L 20 20 L 14 24 Z" fill="white"/>
+                <circle cx="20" cy="20" r="15" fill="#2563eb" stroke="white" stroke-width="2" />
+                <path d="M20 5 L28 25 L20 20 L12 25 Z" fill="white" />
             </svg>
         </div>
     `;
     
+    const icon = L.divIcon({ html: iconHtml, className: 'rotating-marker', iconSize: [40,40], iconAnchor: [20,20] });
+    
     if (miMarker) {
-        mapa.removeLayer(miMarker);
-    }
-    
-    miMarker = L.marker([miUbicacion.lat, miUbicacion.lng], {
-        icon: L.divIcon({
-            html: iconHtml,
-            className: 'rotating-marker',
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
-        }),
-        zIndexOffset: 1000
-    }).addTo(mapa);
-}
-
-function calcularDireccion(lat1, lng1, lat2, lng2) {
-    const dLng = (lng2 - lng1);
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    const bearing = Math.atan2(y, x);
-    return ((bearing * 180 / Math.PI) + 360) % 360;
-}
-
-function iniciarActualizacionGPS() {
-    if (gpsInterval) clearInterval(gpsInterval);
-    
-    let ubicacionAnterior = { ...miUbicacion };
-    
-    gpsInterval = setInterval(async () => {
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                const nuevaLat = pos.coords.latitude;
-                const nuevaLng = pos.coords.longitude;
-                
-                // Calcular dirección de movimiento
-                if (ubicacionAnterior.lat !== nuevaLat || ubicacionAnterior.lng !== nuevaLng) {
-                    ultimaDireccion = calcularDireccion(
-                        ubicacionAnterior.lat, ubicacionAnterior.lng,
-                        nuevaLat, nuevaLng
-                    );
-                }
-                
-                miUbicacion = {
-                    lat: nuevaLat,
-                    lng: nuevaLng,
-                    heading: ultimaDireccion
-                };
-                
-                // Actualizar marcador con rotación
-                crearMarcadorRotable();
-                
-                // Centrar mapa en conductor (solo si no hay carrera activa)
-                if (!carreraEnCurso) {
-                    centrarMapaEnConductor();
-                }
-                
-                // Si hay carrera activa, verificar cambio de ruta
-                if (carreraEnCurso) {
-                    await verificarCambioRuta();
-                }
-                
-                ubicacionAnterior = { ...miUbicacion };
-                
-                if (conductorData.estado !== 'inactivo') {
-                    await guardarUbicacionEnBD();
-                }
-            },
-            () => {},
-            { enableHighAccuracy: true, maximumAge: 0 }
-        );
-    }, 3000); // Cada 3 segundos
-}
-
-function centrarMapaEnConductor() {
-    if (!miUbicacion || !mapa) return;
-    
-    // Zoom 15 = ~2-3km de radio visible (más cercano)
-    // Smooth pan hacia la ubicación del conductor
-    mapa.setView([miUbicacion.lat, miUbicacion.lng], 15, {
-        animate: true,
-        duration: 0.5
-    });
-}
-
-async function guardarUbicacionEnBD() {
-    if (!miUbicacion || !conductorId) return;
-    
-    try {
-        await window.supabase
-            .from('conductores')
-            .update({
-                latitud: miUbicacion.lat,
-                longitud: miUbicacion.lng,
-                ultima_actualizacion: new Date().toISOString()
-            })
-            .eq('id', conductorId);
-    } catch (error) {
-        console.warn('Error guardando ubicación:', error);
-    }
-}
-
-// ============================================
-// TRACKING EN TIEMPO REAL
-// ============================================
-
-async function iniciarTrackingCarrera(carrera) {
-    carreraEnCurso = carrera;
-    
-    if (trackingInterval) clearInterval(trackingInterval);
-    
-    console.log('Iniciando tracking para carrera:', carrera.id);
-    
-    // Actualizar cada 5 segundos
-    trackingInterval = setInterval(async () => {
-        if (!carreraEnCurso || !miUbicacion) return;
-        
-        await actualizarDistanciasYTiempos();
-    }, 5000);
-    
-    // Primera actualización inmediata
-    await actualizarDistanciasYTiempos();
-}
-
-function detenerTrackingCarrera() {
-    if (trackingInterval) {
-        clearInterval(trackingInterval);
-        trackingInterval = null;
-    }
-    carreraEnCurso = null;
-}
-
-async function actualizarDistanciasYTiempos() {
-    if (!carreraEnCurso || !miUbicacion) return;
-    
-    try {
-        const estado = carreraEnCurso.estado;
-        
-        let minutosHastaOrigen = 0;
-        let horaLlegadaOrigen = '';
-        
-        if (estado === 'aceptada' || estado === 'en_camino') {
-            // Calcular ruta a punto de recogida
-            const rutaOrigen = await calcularRutaOSRM(
-                miUbicacion.lng, miUbicacion.lat,
-                carreraEnCurso.origen_lng, carreraEnCurso.origen_lat
-            );
-            
-            if (rutaOrigen.distance && rutaOrigen.duration) {
-                const kmOrigen = (rutaOrigen.distance / 1000).toFixed(1);
-                minutosHastaOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
-                horaLlegadaOrigen = calcularHoraLlegada(minutosHastaOrigen);
-                
-                actualizarUITracking('origen', kmOrigen, minutosHastaOrigen, horaLlegadaOrigen);
-            }
-        }
-        
-        // Calcular ruta al destino
-        const puntoInicio = estado === 'en_curso' 
-            ? { lng: miUbicacion.lng, lat: miUbicacion.lat }
-            : { lng: carreraEnCurso.origen_lng, lat: carreraEnCurso.origen_lat };
-        
-        const rutaDestino = await calcularRutaOSRM(
-            puntoInicio.lng, puntoInicio.lat,
-            carreraEnCurso.destino_lng, carreraEnCurso.destino_lat
-        );
-        
-        if (rutaDestino.distance && rutaDestino.duration) {
-            const kmDestino = (rutaDestino.distance / 1000).toFixed(1);
-            const minDestino = Math.round((rutaDestino.duration / 60) * 1.3);
-            
-            // Calcular hora de llegada al destino
-            let horaLlegadaDestino;
-            if (estado === 'en_curso') {
-                // Si ya está en curso, hora = ahora + tiempo al destino
-                horaLlegadaDestino = calcularHoraLlegada(minDestino);
-            } else {
-                // Si aún no recoge, hora = tiempo hasta origen + tiempo del viaje
-                const tiempoTotal = minutosHastaOrigen + minDestino;
-                horaLlegadaDestino = calcularHoraLlegada(tiempoTotal);
-            }
-            
-            actualizarUITracking('destino', kmDestino, minDestino, horaLlegadaDestino);
-        }
-        
-    } catch (error) {
-        console.error('Error actualizando tracking:', error);
-    }
-}
-
-function calcularHoraLlegada(minutos) {
-    const ahora = new Date();
-    ahora.setMinutes(ahora.getMinutes() + minutos);
-    return ahora.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' });
-}
-
-function actualizarUITracking(tipo, km, min, hora) {
-    const elementoKm = document.getElementById(`tracking-${tipo}-km`);
-    const elementoMin = document.getElementById(`tracking-${tipo}-min`);
-    const elementoHora = document.getElementById(`tracking-${tipo}-hora`);
-    
-    if (elementoKm) elementoKm.textContent = km;
-    if (elementoMin) elementoMin.textContent = min;
-    if (elementoHora) elementoHora.textContent = hora;
-}
-
-// ============================================
-// VERIFICAR CAMBIO DE RUTA
-// ============================================
-
-let ultimaRutaDibujada = null;
-let contadorCambioRuta = 0;
-
-async function verificarCambioRuta() {
-    if (!carreraEnCurso || !miUbicacion) return;
-    
-    try {
-        const destino = carreraEnCurso.estado === 'en_curso' 
-            ? { lat: carreraEnCurso.destino_lat, lng: carreraEnCurso.destino_lng }
-            : { lat: carreraEnCurso.origen_lat, lng: carreraEnCurso.origen_lng };
-        
-        const nuevaRuta = await calcularRutaOSRM(
-            miUbicacion.lng, miUbicacion.lat,
-            destino.lng, destino.lat
-        );
-        
-        if (!nuevaRuta.geometry) return;
-        
-        // Comparar con ruta anterior
-        const cambioSignificativo = !ultimaRutaDibujada || 
-            Math.abs(nuevaRuta.distance - ultimaRutaDibujada.distance) > 500; // Más de 500m diferencia
-        
-        if (cambioSignificativo) {
-            contadorCambioRuta++;
-            console.log(`🔄 Cambio de ruta detectado (#${contadorCambioRuta})`);
-            
-            ultimaRutaDibujada = nuevaRuta;
-            
-            // Redibujar ruta
-            await mostrarCarreraActivaEnMapa(carreraEnCurso);
-            
-            mostrarNotificacion('Ruta actualizada', 'info');
-        }
-        
-    } catch (error) {
-        console.error('Error verificando cambio de ruta:', error);
-    }
-}
-
-async function calcularRutaOSRM(lng1, lat1, lng2, lat2) {
-    try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
-        const res = await fetch(url);
-        const data = await res.json();
-        
-        if (data.routes && data.routes[0]) {
-            return {
-                geometry: data.routes[0].geometry,
-                distance: data.routes[0].distance,
-                duration: data.routes[0].duration
-            };
-        }
-        return {};
-    } catch (error) {
-        console.error('Error OSRM:', error);
-        return {};
-    }
-}
-
-// ============================================
-// CARGAR CARRERAS
-// ============================================
-
-async function cargarTodasCarreras() {
-    await Promise.all([
-        cargarCarrerasDisponibles(),
-        cargarCarrerasActivas(),
-        cargarCarrerasCompletadas()
-    ]);
-}
-
-async function cargarCarrerasDisponibles() {
-    try {
-        console.log('=== CARGANDO CARRERAS DISPONIBLES ===');
-        console.log('Conductor ID:', conductorId);
-        
-        // Query 1: Asignadas
-        const { data: asignadas, error: errorAsignadas } = await window.supabase
-            .from('carreras')
-            .select('*, clientes!inner(nombre, telefono)')
-            .eq('conductor_id', conductorId)
-            .eq('estado', 'asignada');
-        
-        if (errorAsignadas) {
-            console.error('Error asignadas:', errorAsignadas);
-        } else {
-            console.log('Asignadas:', asignadas?.length || 0);
-        }
-        
-        // Query 2: Directas
-        const { data: directas, error: errorDirectas } = await window.supabase
-            .from('carreras')
-            .select('*, clientes!inner(nombre, telefono)')
-            .eq('tipo', 'directo')
-            .in('estado', ['solicitada', 'buscando'])
-            .is('conductor_id', null)
-            .limit(10);
-        
-        if (errorDirectas) {
-            console.error('Error directas:', errorDirectas);
-        } else {
-            console.log('Directas:', directas?.length || 0);
-        }
-        
-        // Query 3: Colectivas
-        const { data: colectivas, error: errorColectivas } = await window.supabase
-            .from('carreras')
-            .select('*, clientes!inner(nombre, telefono)')
-            .eq('tipo', 'colectivo')
-            .in('estado', ['solicitada', 'buscando'])
-            .is('conductor_id', null)
-            .limit(20);
-        
-        if (errorColectivas) {
-            console.error('Error colectivas:', errorColectivas);
-        } else {
-            console.log('Colectivas:', colectivas?.length || 0);
-        }
-        
-        const todas = [
-            ...(asignadas || []), 
-            ...(directas || []),
-            ...(colectivas || [])
-        ];
-        
-        console.log('Total carreras:', todas.length);
-        
-        if (todas.length === 0) {
-            document.getElementById('carrerasDisponibles').innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">🏍️</div>
-                    <div class="empty-text">No hay carreras disponibles</div>
-                    <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.5rem">
-                        Las carreras aparecerán aquí automáticamente
-                    </p>
-                </div>
-            `;
-            document.getElementById('badgeDisponibles').style.display = 'none';
-            limpiarMarcadoresColectivas();
-            return;
-        }
-        
-        console.log('Renderizando', todas.length, 'carreras...');
-        let html = '';
-        todas.forEach(carrera => {
-            html += renderCarreraDisponible(carrera);
-        });
-        
-        document.getElementById('carrerasDisponibles').innerHTML = html;
-        document.getElementById('badgeDisponibles').textContent = todas.length;
-        document.getElementById('badgeDisponibles').style.display = 'block';
-        
-        console.log('Calculando distancias...');
-        // Calcular distancias CON AWAIT para que funcione en móvil
-        for (const carrera of todas) {
-            await calcularDistanciasCard(carrera);
-        }
-        
-        console.log('✅ Carreras disponibles listas');
-        
-    } catch (error) {
-        console.error('=== ERROR EN cargarCarrerasDisponibles ===');
-        console.error(error);
-        console.error('Stack:', error.stack);
-        
-        // Mostrar error al usuario
-        document.getElementById('carrerasDisponibles').innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">⚠️</div>
-                <div class="empty-text">Error cargando carreras</div>
-                <p style="font-size:0.75rem;color:#ef4444;margin-top:0.5rem">
-                    ${error.message}
-                </p>
-                <button onclick="cargarCarrerasDisponibles()" class="btn btn-primary" style="margin-top:1rem">
-                    Reintentar
-                </button>
-            </div>
-        `;
-    }
-}
-
-function renderCarreraDisponible(carrera) {
-    const esColectiva = carrera.tipo === 'colectivo';
-    const esNueva = carrera.conductor_id === conductorId;
-    const clienteNombre = carrera.clientes?.nombre || 'Cliente';
-    
-    const cardId = `card-${carrera.id}`;
-    
-    let html = `
-        <div class="ride-card ${esNueva ? 'nueva' : ''}" id="${cardId}">
-            <div class="ride-header">
-                <div class="ride-type">
-                    ${esColectiva ? '🚐 Colectiva' : '🏍️ Directa'}
-                </div>
-                <div class="ride-price">L ${parseFloat(carrera.precio).toFixed(2)}</div>
-            </div>
-            
-            <div style="background:#f3f4f6;padding:0.5rem 0.75rem;border-radius:0.5rem;margin-bottom:0.75rem">
-                <div style="font-size:0.875rem;font-weight:600;color:#111827">
-                    👤 ${clienteNombre}
-                </div>
-            </div>
-            
-            <div class="ride-route">
-                <div class="route-line">
-                    <div class="route-dot"></div>
-                    <div class="route-dots"></div>
-                    <div class="route-dot destination"></div>
-                </div>
-                <div class="route-info">
-                    <div class="route-point">
-                        <div class="route-label">Recogida</div>
-                        <div class="route-address">${carrera.origen_direccion}</div>
-                    </div>
-                    <div class="route-point">
-                        <div class="route-label">Destino</div>
-                        <div class="route-address">${carrera.destino_direccion}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="background:#fef3c7;padding:0.75rem;border-radius:0.5rem;margin-bottom:0.5rem">
-                <div style="font-size:0.625rem;color:#92400e;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">Hasta Recogida</div>
-                <div style="display:flex;gap:0.75rem;font-size:0.875rem;color:#92400e;flex-wrap:wrap">
-                    <div>📏 <span id="${cardId}-dist-origen" style="font-weight:700">...</span> km</div>
-                    <div>⏱️ <span id="${cardId}-time-origen" style="font-weight:700">...</span> min</div>
-                    <div>🕐 <span id="${cardId}-hora-origen" style="font-weight:700">...</span></div>
-                </div>
-            </div>
-            
-            <div style="background:#dbeafe;padding:0.75rem;border-radius:0.5rem;margin-bottom:0.75rem">
-                <div style="font-size:0.625rem;color:#1e40af;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">Distancia del Viaje</div>
-                <div style="display:flex;gap:0.75rem;font-size:0.875rem;color:#1e40af;flex-wrap:wrap">
-                    <div>📏 <span style="font-weight:700">${carrera.distancia_km ? carrera.distancia_km.toFixed(1) : '—'}</span> km</div>
-                    <div>⏱️ <span style="font-weight:700">${carrera.tiempo_estimado_min || '—'}</span> min</div>
-                    <div>🏁 <span id="${cardId}-hora-destino" style="font-weight:700">...</span></div>
-                    ${esColectiva ? '<div style="color:#10b981;font-weight:700">✨ 30% OFF</div>' : ''}
-                </div>
-            </div>
-    `;
-    
-    if (esNueva) {
-        const timerId = `timer-${carrera.id}`;
-        if (!timers[carrera.id]) {
-            timers[carrera.id] = 60;
-            iniciarTimer(carrera.id);
-        }
-        
-        html += `
-            <div class="ride-timer">
-                <div class="timer-text">Tiempo para responder</div>
-                <div class="timer-value" id="${timerId}">${timers[carrera.id]}s</div>
-            </div>
-            <div class="ride-actions">
-                <button class="btn btn-success" onclick="event.stopPropagation(); aceptarCarrera('${carrera.id}')">
-                    Aceptar
-                </button>
-                <button class="btn btn-outline" onclick="event.stopPropagation(); rechazarCarrera('${carrera.id}')">
-                    Rechazar
-                </button>
-            </div>
-        `;
+        miMarker.setLatLng([miUbicacion.lat, miUbicacion.lng]);
+        miMarker.setIcon(icon);
     } else {
-        html += `
-            <div class="ride-actions single">
-                <button class="btn btn-primary" onclick="event.stopPropagation(); tomarCarrera('${carrera.id}')">
-                    Tomar Carrera
-                </button>
-            </div>
-        `;
+        miMarker = L.marker([miUbicacion.lat, miUbicacion.lng], { icon: icon }).addTo(mapa);
     }
-    
-    html += `</div>`;
-    return html;
 }
 
-async function calcularDistanciasCard(carrera) {
-    if (!miUbicacion) {
-        console.warn('No hay ubicación GPS para calcular distancias');
-        return;
+async function actualizarUbicacionDB(lat, lng, heading) {
+    // Throttle básico: actualizar cada 5s máx se podría implementar aquí
+    await window.supabaseClient.from('conductores')
+        .update({ latitud: lat, longitud: lng, rumbo: heading, ultima_actualizacion: new Date() })
+        .eq('id', conductorId);
+}
+
+// ============================================
+// 3. GESTIÓN DE ESTADOS Y CARRERAS
+// ============================================
+
+async function cargarEstadoActual() {
+    // 1. Buscar si tengo carrera activa
+    const { data: carrera } = await window.supabaseClient
+        .from('carreras')
+        .select('*')
+        .eq('conductor_id', conductorId)
+        .in('estado', ['asignada', 'aceptada', 'en_camino', 'en_curso'])
+        .maybeSingle();
+
+    if (carrera) {
+        // Recuperar sesión
+        console.log('Recuperando carrera:', carrera.id);
+        carreraEnCurso = carrera;
+        mostrarPantallaViaje(carrera);
+    } else {
+        // Estoy libre, buscar solicitudes pendientes en lista
+        cargarDisponibles();
     }
+}
+
+async function toggleEstado() {
+    const nuevo = conductorData.estado === 'disponible' ? 'inactivo' : 'disponible';
     
-    const cardId = `card-${carrera.id}`;
+    // Update DB
+    await window.supabaseClient.from('conductores').update({ estado: nuevo }).eq('id', conductorId);
+    conductorData.estado = nuevo;
+    actualizarUIEstado(nuevo);
     
-    try {
-        // Calcular ruta de mi ubicación al origen
-        const rutaOrigen = await calcularRutaOSRM(
-            miUbicacion.lng, miUbicacion.lat,
-            carrera.origen_lng, carrera.origen_lat
-        );
-        
-        if (rutaOrigen.distance && rutaOrigen.duration) {
-            const kmOrigen = (rutaOrigen.distance / 1000).toFixed(1);
-            const minOrigen = Math.round((rutaOrigen.duration / 60) * 1.3); // Con tráfico
-            const horaLlegadaOrigen = calcularHoraLlegada(minOrigen);
-            
-            const elemDist = document.getElementById(`${cardId}-dist-origen`);
-            const elemTime = document.getElementById(`${cardId}-time-origen`);
-            const elemHora = document.getElementById(`${cardId}-hora-origen`);
-            
-            if (elemDist) elemDist.textContent = kmOrigen;
-            if (elemTime) elemTime.textContent = minOrigen;
-            if (elemHora) elemHora.textContent = horaLlegadaOrigen;
-            
-            // Calcular hora de llegada al DESTINO (origen + viaje)
-            const minViaje = carrera.tiempo_estimado_min || 0;
-            const tiempoTotal = minOrigen + minViaje;
-            const horaLlegadaDestino = calcularHoraLlegada(tiempoTotal);
-            
-            const elemHoraDestino = document.getElementById(`${cardId}-hora-destino`);
-            if (elemHoraDestino) {
-                elemHoraDestino.textContent = horaLlegadaDestino;
-            }
+    if (nuevo === 'disponible') cargarDisponibles();
+}
+
+function actualizarUIEstado(estado) {
+    const badge = document.getElementById('statusBadge');
+    const dot = badge.querySelector('.status-dot');
+    const text = document.getElementById('statusText');
+    
+    badge.className = 'status-header ' + (estado === 'disponible' ? 'status-online' : 'status-busy');
+    text.textContent = estado === 'disponible' ? 'En Línea' : 'Desconectado';
+    
+    if (estado === 'en_carrera') {
+        text.textContent = 'En Viaje';
+        badge.className = 'status-header status-busy';
+    }
+}
+
+// ============================================
+// 4. FLUJO DE NUEVA SOLICITUD (MODO ALERTA)
+// ============================================
+
+function recibirNuevaSolicitud(carrera) {
+    if (conductorData.estado !== 'disponible') return;
+    if (carreraEnCurso) return; // Ya estoy ocupado
+
+    console.log('🔔 SOLICITUD RECIBIDA:', carrera.id);
+    solicitudActual = carrera;
+    
+    // 1. Sonido y Vibración
+    const audio = document.getElementById('alertSound');
+    audio.currentTime = 0;
+    audio.play().catch(e => console.log('Interactuar para audio'));
+    if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 1000]);
+
+    // 2. Llenar Datos Overlay
+    document.getElementById('reqType').textContent = carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo';
+    document.getElementById('reqAddress').textContent = carrera.origen_direccion;
+    document.getElementById('reqPrice').textContent = 'L ' + carrera.precio;
+    
+    // Calcular distancia a recoger (simple lineal por ahora para velocidad)
+    if (miUbicacion) {
+        const d = UTILS.calcularDistancia(miUbicacion.lat, miUbicacion.lng, carrera.origen_lat, carrera.origen_lng);
+        document.getElementById('reqDist').textContent = d.toFixed(1) + ' km';
+    }
+
+    // 3. Mostrar Overlay
+    document.getElementById('requestOverlay').classList.add('active');
+    
+    // 4. Timer 30s
+    let timeLeft = 30;
+    const timerEl = document.getElementById('reqTimer');
+    clearInterval(timerSolicitud);
+    timerSolicitud = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = timeLeft + 's';
+        if (timeLeft <= 0) {
+            rechazarSolicitudActual(true); // Rechazo automático
         }
-        
-    } catch (error) {
-        console.error('Error calculando distancias para card:', error);
-    }
+    }, 1000);
+
+    // 5. Mostrar ruta en mapa (zoom out)
+    mostrarRutaPreview(carrera);
 }
 
-async function cargarCarrerasActivas() {
+async function aceptarSolicitudActual() {
+    if (!solicitudActual) return;
+    const id = solicitudActual.id;
+    limpiarAlerta();
+
     try {
-        console.log('=== CARGANDO CARRERAS ACTIVAS ===');
-        
-        const { data, error } = await window.supabase
+        // Intentar asignar (concurrencia optimista)
+        const { data, error } = await window.supabaseClient
             .from('carreras')
-            .select('*, clientes!inner(nombre, telefono)')
-            .eq('conductor_id', conductorId)
-            .in('estado', ['aceptada', 'en_curso']);
-        
-        if (error) {
-            console.error('Error cargando activas:', error);
-            throw error;
+            .update({ 
+                conductor_id: conductorId,
+                estado: 'aceptada', // O 'en_camino' directamente
+                fecha_aceptacion: new Date()
+            })
+            .eq('id', id)
+            .is('conductor_id', null) // Asegurar que nadie más la tomó
+            .select()
+            .single();
+
+        if (error || !data) {
+            alert('Otro conductor tomó el viaje 😞');
+            cargarDisponibles();
+        } else {
+            // ÉXITO
+            carreraEnCurso = data;
+            // Cambiar mi estado a ocupado
+            await window.supabaseClient.from('conductores').update({ estado: 'en_carrera' }).eq('id', conductorId);
+            conductorData.estado = 'en_carrera';
+            
+            mostrarPantallaViaje(data);
         }
-        
-        console.log('Carreras activas encontradas:', data ? data.length : 0);
-        
-        if (!data || data.length === 0) {
-            document.getElementById('carrerasActivas').innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">🚗</div>
-                    <div class="empty-text">No tienes carreras en curso</div>
-                </div>
-            `;
-            document.getElementById('badgeActivas').style.display = 'none';
-            detenerTrackingCarrera();
-            return;
-        }
-        
-        let html = '';
-        data.forEach(carrera => {
-            html += renderCarreraActiva(carrera);
-        });
-        
-        document.getElementById('carrerasActivas').innerHTML = html;
-        document.getElementById('badgeActivas').textContent = data.length;
-        document.getElementById('badgeActivas').style.display = 'block';
-        
-        // Iniciar tracking de la primera
-        if (data.length > 0 && miUbicacion) {
-            await mostrarCarreraActivaEnMapa(data[0]);
-            await iniciarTrackingCarrera(data[0]);
-        }
-        
-        console.log('✅ Carreras activas cargadas');
-        
-    } catch (error) {
-        console.error('Error cargando activas:', error);
-        document.getElementById('carrerasActivas').innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">⚠️</div>
-                <div class="empty-text">Error cargando carreras activas</div>
-            </div>
-        `;
+
+    } catch (e) {
+        console.error(e);
+        alert('Error al aceptar');
     }
 }
 
-function renderCarreraActiva(carrera) {
-    const clienteNombre = carrera.clientes?.nombre || 'Cliente';
-    const mostrarOrigen = carrera.estado === 'aceptada';
-    
-    let botonHTML = '';
-    if (carrera.estado === 'aceptada') {
-        botonHTML = `
-            <button class="btn btn-success" onclick="pasajeroRecogido('${carrera.id}')">
-                👤 Pasajero Recogido
-            </button>
-        `;
-    } else if (carrera.estado === 'en_curso') {
-        botonHTML = `
-            <button class="btn btn-primary" onclick="completarCarrera('${carrera.id}')">
-                ✅ Completar Viaje
-            </button>
-        `;
+function rechazarSolicitudActual(auto = false) {
+    limpiarAlerta();
+    if (!auto) {
+        // Opcional: Registrar rechazo en DB
     }
+    cargarDisponibles(); // Volver a lista normal
+}
+
+function limpiarAlerta() {
+    document.getElementById('requestOverlay').classList.remove('active');
+    document.getElementById('alertSound').pause();
+    clearInterval(timerSolicitud);
+    solicitudActual = null;
+    limpiarMapa();
+}
+
+// ============================================
+// 5. GESTIÓN DE VIAJE EN CURSO
+// ============================================
+
+function mostrarPantallaViaje(carrera) {
+    // 1. UI Tabs
+    switchTab('curso');
+    actualizarUIEstado('en_carrera');
+
+    // 2. Renderizar Tarjeta de Acción
+    const container = document.getElementById('viajeActivoContainer');
     
-    return `
-        <div class="ride-card" style="border-left: 4px solid #2563eb">
-            <div class="ride-header">
-                <div class="ride-type">🏁 En curso</div>
-                <div class="ride-price">L ${parseFloat(carrera.precio).toFixed(2)}</div>
-            </div>
+    // Determinar paso
+    let titulo = '', accionBtn = '', color = '';
+    
+    if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
+        titulo = 'Yendo a Recoger';
+        accionBtn = `<button class="btn btn-primary btn-block" onclick="reportarLlegada()">📍 ¡Ya llegué!</button>`;
+        color = '#f59e0b';
+        // Dibujar ruta: Yo -> Origen
+        dibujarRuta(miUbicacion, {lat: carrera.origen_lat, lng: carrera.origen_lng}, '#f59e0b');
+    } else if (carrera.estado === 'en_curso') {
+        titulo = 'En Ruta al Destino';
+        accionBtn = `<button class="btn btn-success btn-block" onclick="completarViaje()">🏁 Completar Viaje (Cobrar L ${carrera.precio})</button>`;
+        color = '#10b981';
+        // Dibujar ruta: Origen -> Destino (o Yo -> Destino)
+        dibujarRuta(miUbicacion, {lat: carrera.destino_lat, lng: carrera.destino_lng}, '#10b981');
+    }
+
+    container.innerHTML = `
+        <div class="active-trip-card" style="border-left: 5px solid ${color}">
+            <h2 style="margin:0 0 1rem 0; color:${color}">${titulo}</h2>
             
-            <div style="background:#f3f4f6;padding:0.5rem 0.75rem;border-radius:0.5rem;margin-bottom:0.75rem">
-                <div style="font-size:0.875rem;font-weight:600;color:#111827">
-                    👤 ${clienteNombre}
+            <div class="step-indicator">
+                <div class="step-circle">1</div>
+                <div>
+                    <small>Recoger en:</small><br>
+                    <strong>${carrera.origen_direccion}</strong>
                 </div>
             </div>
-            
-            ${mostrarOrigen ? `
-            <div style="background:#fef3c7;padding:1rem;border-radius:0.5rem;margin-bottom:1rem">
-                <div style="font-size:0.75rem;color:#92400e;font-weight:600;margin-bottom:0.5rem">AL PUNTO DE RECOGIDA</div>
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                        <div style="font-size:1.5rem;font-weight:800;color:#f59e0b">
-                            <span id="tracking-origen-km">-.-</span> km
-                        </div>
-                        <div style="font-size:0.875rem;color:#92400e">
-                            <span id="tracking-origen-min">--</span> min • 
-                            Llegada: <span id="tracking-origen-hora">--:--</span>
-                        </div>
-                    </div>
-                    <div style="font-size:2rem">📍</div>
+             <div class="step-indicator">
+                <div class="step-circle" style="background:${carrera.estado === 'en_curso' ? '#2563eb' : '#ccc'}">2</div>
+                <div>
+                    <small>Destino:</small><br>
+                    <strong>${carrera.destino_direccion}</strong>
                 </div>
             </div>
-            ` : ''}
-            
-            <div style="background:#e0f2fe;padding:1rem;border-radius:0.5rem;margin-bottom:1rem">
-                <div style="font-size:0.75rem;color:#0c4a6e;font-weight:600;margin-bottom:0.5rem">AL DESTINO</div>
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                        <div style="font-size:1.5rem;font-weight:800;color:#0284c7">
-                            <span id="tracking-destino-km">-.-</span> km
-                        </div>
-                        <div style="font-size:0.875rem;color:#0c4a6e">
-                            <span id="tracking-destino-min">--</span> min • 
-                            Llegada: <span id="tracking-destino-hora">--:--</span>
-                        </div>
-                    </div>
-                    <div style="font-size:2rem">🏁</div>
-                </div>
+
+            <div style="display:flex; gap:10px; margin: 1rem 0">
+                <button class="btn btn-secondary" style="flex:1" onclick="window.open('waze://?ll=${carrera.origen_lat},${carrera.origen_lng}&navigate=yes')">🗺️ Waze</button>
+                <button class="btn btn-secondary" style="flex:1" onclick="window.open('tel:+50400000000')">📞 Llamar</button>
             </div>
-            
-            <div class="ride-route" style="margin-bottom:1rem">
-                <div class="route-line">
-                    <div class="route-dot"></div>
-                    <div class="route-dots"></div>
-                    <div class="route-dot destination"></div>
-                </div>
-                <div class="route-info">
-                    <div class="route-point">
-                        <div class="route-label">Recogida</div>
-                        <div class="route-address">${carrera.origen_direccion}</div>
-                    </div>
-                    <div class="route-point">
-                        <div class="route-label">Destino</div>
-                        <div class="route-address">${carrera.destino_direccion}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <button class="btn btn-secondary btn-block" onclick="verRutaEnMapa('${carrera.id}')" style="margin-bottom:0.5rem;background:#6b7280">
-                🗺️ Ver Ruta en Mapa
-            </button>
-            
-            <div class="ride-actions single">
-                ${botonHTML}
-            </div>
+
+            ${accionBtn}
+            <button class="btn btn-danger btn-block mt-2" onclick="cancelarViaje()">⚠ Cancelar</button>
         </div>
     `;
 }
 
-async function verRutaEnMapa(carreraId) {
-    try {
-        const { data } = await window.supabase
-            .from('carreras')
-            .select('*')
-            .eq('id', carreraId)
-            .single();
+// Acciones del Flujo
+async function reportarLlegada() {
+    // Cambiamos estado a 'en_curso' (asumiendo que sube el pasajero)
+    // En una app real hay un paso intermedio "Llegué" y luego "Iniciar Viaje"
+    if(!confirm('¿El pasajero ya subió?')) return;
+    
+    await window.supabaseClient.from('carreras')
+        .update({ estado: 'en_curso', fecha_abordaje: new Date() })
+        .eq('id', carreraEnCurso.id);
         
-        if (data) {
-            await mostrarCarreraActivaEnMapa(data);
-            await iniciarTrackingCarrera(data);
-            mostrarNotificacion('Ruta mostrada en el mapa', 'info');
-        }
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
+    carreraEnCurso.estado = 'en_curso';
+    mostrarPantallaViaje(carreraEnCurso);
 }
 
-async function mostrarCarreraActivaEnMapa(carrera) {
-    try {
-        limpiarMarcadoresColectivas();
+async function completarViaje() {
+    if(!confirm(`¿Cobrar L ${carreraEnCurso.precio} y finalizar?`)) return;
+    
+    await window.supabaseClient.from('carreras')
+        .update({ estado: 'completada', fecha_completado: new Date() })
+        .eq('id', carreraEnCurso.id);
         
-        const origenMarker = L.marker([carrera.origen_lat, carrera.origen_lng], {
-            icon: L.divIcon({ html: '📍', className: 'emoji-marker', iconSize: [30, 30] })
-        }).addTo(mapa).bindPopup('<b>Punto de Recogida</b><br>' + carrera.origen_direccion);
-        
-        const destinoMarker = L.marker([carrera.destino_lat, carrera.destino_lng], {
-            icon: L.divIcon({ html: '🏁', className: 'emoji-marker', iconSize: [30, 30] })
-        }).addTo(mapa).bindPopup('<b>Destino</b><br>' + carrera.destino_direccion);
-        
-        marcadoresColectivas.push(origenMarker, destinoMarker);
-        
-        // Ruta según estado
-        if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
-            const ruta1 = await calcularRutaOSRM(
-                miUbicacion.lng, miUbicacion.lat,
-                carrera.origen_lng, carrera.origen_lat
-            );
-            
-            if (ruta1.geometry) {
-                const rutaLayer1 = L.geoJSON(ruta1.geometry, {
-                    style: { 
-                        color: '#ef4444', 
-                        weight: 5, 
-                        dashArray: '10, 10',
-                        opacity: 0.8
-                    }
-                }).addTo(mapa);
-                marcadoresColectivas.push(rutaLayer1);
-                ultimaRutaDibujada = ruta1;
-            }
-        }
-        
-        const puntoInicio = carrera.estado === 'en_curso' 
-            ? { lng: miUbicacion.lng, lat: miUbicacion.lat }
-            : { lng: carrera.origen_lng, lat: carrera.origen_lat };
-        
-        const ruta2 = await calcularRutaOSRM(
-            puntoInicio.lng, puntoInicio.lat,
-            carrera.destino_lng, carrera.destino_lat
-        );
-        
-        if (ruta2.geometry) {
-            const rutaLayer2 = L.geoJSON(ruta2.geometry, {
-                style: { 
-                    color: '#f59e0b', 
-                    weight: 5,
-                    opacity: 0.8
-                }
-            }).addTo(mapa);
-            marcadoresColectivas.push(rutaLayer2);
-        }
-        
-        const bounds = L.latLngBounds([
-            [miUbicacion.lat, miUbicacion.lng],
-            [carrera.origen_lat, carrera.origen_lng],
-            [carrera.destino_lat, carrera.destino_lng]
-        ]);
-        mapa.fitBounds(bounds, { 
-            padding: [50, 50],
-            maxZoom: 15 // Más cercano, ~2-3km de radio
-        });
-        
-    } catch (error) {
-        console.error('Error mostrando carrera:', error);
-    }
+    // Volver a estar disponible
+    await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
+    conductorData.estado = 'disponible';
+    
+    alert(`Viaje Finalizado. Ganaste L ${carreraEnCurso.precio}`);
+    
+    carreraEnCurso = null;
+    limpiarMapa();
+    actualizarUIEstado('disponible');
+    cargarDisponibles();
+    switchTab('disponibles');
 }
 
-async function cargarCarrerasCompletadas() {
-    try {
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
+async function cancelarViaje() {
+    if(!confirm('¿Cancelar viaje actual? Esto afectará tu calificación.')) return;
+    
+    await window.supabaseClient.from('carreras')
+        .update({ estado: 'cancelada_conductor' })
+        .eq('id', carreraEnCurso.id);
         
-        const { data } = await window.supabase
-            .from('carreras')
-            .select('*')
-            .eq('conductor_id', conductorId)
-            .eq('estado', 'completada')
-            .gte('fecha_completado', hoy.toISOString())
-            .order('fecha_completado', { ascending: false });
-        
-        if (!data || data.length === 0) {
-            document.getElementById('carrerasCompletadas').innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">✅</div>
-                    <div class="empty-text">No hay carreras completadas hoy</div>
-                </div>
-            `;
-            return;
-        }
-        
-        let html = '';
-        data.forEach(carrera => {
-            html += `
-                <div class="ride-card">
-                    <div class="ride-header">
-                        <div class="ride-type">✅ Completada</div>
-                        <div class="ride-price">L ${parseFloat(carrera.precio).toFixed(2)}</div>
-                    </div>
-                    <div class="ride-route">
-                        <div class="route-line">
-                            <div class="route-dot"></div>
-                            <div class="route-dots"></div>
-                            <div class="route-dot destination"></div>
-                        </div>
-                        <div class="route-info">
-                            <div class="route-point">
-                                <div class="route-address">${carrera.origen_direccion}</div>
-                            </div>
-                            <div class="route-point">
-                                <div class="route-address">${carrera.destino_direccion}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ride-stats">
-                        <div class="stat-item">
-                            <span>📏</span>
-                            <span class="stat-value">${carrera.distancia_km ? carrera.distancia_km.toFixed(1) : '—'} km</span>
-                        </div>
-                        <div class="stat-item">
-                            <span>⏱️</span>
-                            <span class="stat-value">${carrera.tiempo_estimado_min || '—'} min</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        document.getElementById('carrerasCompletadas').innerHTML = html;
-        
-    } catch (error) {
-        console.error('Error:', error);
-    }
+    await window.supabaseClient.from('conductores').update({ estado: 'disponible' }).eq('id', conductorId);
+    conductorData.estado = 'disponible';
+    
+    carreraEnCurso = null;
+    limpiarMapa();
+    cargarDisponibles();
+    switchTab('disponibles');
 }
+
 
 // ============================================
-// ACCIONES
+// 6. UTILIDADES Y CARGA DE LISTAS
 // ============================================
 
-function iniciarTimer(carreraId) {
-    const interval = setInterval(() => {
-        if (timers[carreraId] !== undefined) {
-            timers[carreraId]--;
-            const timerEl = document.getElementById(`timer-${carreraId}`);
-            if (timerEl) {
-                timerEl.textContent = timers[carreraId] + 's';
-            }
-            
-            if (timers[carreraId] <= 0) {
-                clearInterval(interval);
-                rechazarCarrera(carreraId, true);
-            }
-        } else {
-            clearInterval(interval);
-        }
-    }, 1000);
-}
-
-async function aceptarCarrera(id) {
-    try {
-        document.getElementById('loader').classList.remove('hidden');
+async function cargarDisponibles() {
+    const { data } = await window.supabaseClient
+        .from('carreras')
+        .select('*')
+        .eq('estado', 'buscando') // Solo las que nadie tiene
+        .is('conductor_id', null)
+        .order('fecha_solicitud', { ascending: false });
         
-        await window.supabase
-            .from('carreras')
-            .update({ 
-                estado: 'aceptada',
-                fecha_aceptacion: new Date().toISOString()
-            })
-            .eq('id', id);
-        
-        delete timers[id];
-        await cambiarEstado('en_carrera');
-        mostrarNotificacion('¡Carrera aceptada!', 'success');
-        reproducirSonido();
-        await cargarTodasCarreras();
-        cambiarTab('activas');
-        
-    } catch (error) {
-        alert('Error: ' + error.message);
-    } finally {
-        document.getElementById('loader').classList.add('hidden');
-    }
-}
-
-async function rechazarCarrera(id, auto = false) {
-    try {
-        await window.supabase
-            .from('carreras')
-            .update({ 
-                estado: 'rechazada',
-                conductor_id: null
-            })
-            .eq('id', id);
-        
-        delete timers[id];
-        mostrarNotificacion(auto ? 'Carrera expirada' : 'Carrera rechazada', 'info');
-        await cargarTodasCarreras();
-        
-    } catch (error) {
-        console.error('Error:', error);
-    }
-}
-
-async function tomarCarrera(id) {
-    try {
-        document.getElementById('loader').classList.remove('hidden');
-        
-        const { data, error } = await window.supabase
-            .from('carreras')
-            .update({ 
-                conductor_id: conductorId,
-                estado: 'aceptada',
-                fecha_aceptacion: new Date().toISOString()
-            })
-            .eq('id', id)
-            .is('conductor_id', null)
-            .select('*, clientes!inner(nombre, telefono)')
-            .single();
-        
-        if (error) throw error;
-        
-        await cambiarEstado('en_carrera');
-        mostrarNotificacion('¡Carrera tomada!', 'success');
-        reproducirSonido();
-        
-        // Mostrar ruta y tracking AHORA
-        await mostrarCarreraActivaEnMapa(data);
-        await iniciarTrackingCarrera(data);
-        
-        await cargarTodasCarreras();
-        cambiarTab('activas');
-        
-    } catch (error) {
-        console.error('Error tomando carrera:', error);
-        alert('Esta carrera ya fue tomada o hubo un error');
-        await cargarTodasCarreras();
-    } finally {
-        document.getElementById('loader').classList.add('hidden');
-    }
-}
-
-async function pasajeroRecogido(id) {
-    try {
-        document.getElementById('loader').classList.remove('hidden');
-        
-        const { data, error } = await window.supabase
-            .from('carreras')
-            .update({ 
-                estado: 'en_curso',
-                fecha_inicio: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select('*, clientes!inner(nombre, telefono)')
-            .single();
-        
-        if (error) throw error;
-        
-        mostrarNotificacion('Pasajero a bordo 👤', 'success');
-        
-        // Redibujar ruta al destino
-        await mostrarCarreraActivaEnMapa(data);
-        await iniciarTrackingCarrera(data);
-        
-        await cargarTodasCarreras();
-        
-    } catch (error) {
-        console.error('Error:', error);
-        alert('Error: ' + error.message);
-    } finally {
-        document.getElementById('loader').classList.add('hidden');
-    }
-}
-
-async function completarCarrera(id) {
-    if (!confirm('¿Completar este viaje?')) return;
+    const div = document.getElementById('listaDisponibles');
+    document.getElementById('countDisp').textContent = data ? data.length : 0;
     
-    try {
-        document.getElementById('loader').classList.remove('hidden');
-        
-        await window.supabase
-            .from('carreras')
-            .update({ 
-                estado: 'completada',
-                fecha_completado: new Date().toISOString()
-            })
-            .eq('id', id);
-        
-        // Detener tracking
-        detenerTrackingCarrera();
-        limpiarMarcadoresColectivas();
-        
-        await cambiarEstado('disponible');
-        mostrarNotificacion('¡Viaje completado! 🎉', 'success');
-        reproducirSonido();
-        
-        await cargarTodasCarreras();
-        await cargarEstadisticas();
-        cambiarTab('completadas');
-        
-    } catch (error) {
-        alert('Error: ' + error.message);
-    } finally {
-        document.getElementById('loader').classList.add('hidden');
+    if (!data || data.length === 0) {
+        div.innerHTML = '<p class="text-center" style="margin-top:2rem; color:#888">Buscando viajes cercanos...</p>';
+        return;
     }
-}
-
-// ============================================
-// ESTADÍSTICAS
-// ============================================
-
-async function cargarEstadisticas() {
-    try {
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        
-        const { data } = await window.supabase
-            .from('carreras')
-            .select('precio')
-            .eq('conductor_id', conductorId)
-            .eq('estado', 'completada')
-            .gte('fecha_completado', hoy.toISOString());
-        
-        const total = data ? data.length : 0;
-        const ganancias = data ? data.reduce((sum, c) => sum + parseFloat(c.precio || 0), 0) : 0;
-        
-        document.getElementById('statCarreras').textContent = total;
-        document.getElementById('statGanancias').textContent = 'L ' + ganancias.toFixed(0);
-        
-    } catch (error) {
-        console.error('Error:', error);
-    }
-}
-
-// ============================================
-// MAPA - CARRERAS DISPONIBLES
-// ============================================
-
-function limpiarMarcadoresColectivas() {
-    marcadoresColectivas.forEach(m => mapa.removeLayer(m));
-    marcadoresColectivas = [];
-}
-
-async function mostrarCarrerasEnMapa(carreras) {
-    limpiarMarcadoresColectivas();
     
-    for (const c of carreras) {
-        try {
-            const iconoOrigen = c.tipo === 'colectivo' ? '🚐' : '🏍️';
-            const markerOrigen = L.marker([c.origen_lat, c.origen_lng], {
-                icon: L.divIcon({ 
-                    html: iconoOrigen, 
-                    className: 'emoji-marker',
-                    iconSize: [35, 35]
-                })
-            }).addTo(mapa);
-            
-            const markerDestino = L.marker([c.destino_lat, c.destino_lng], {
-                icon: L.divIcon({ 
-                    html: '🏁', 
-                    className: 'emoji-marker',
-                    iconSize: [30, 30]
-                })
-            }).addTo(mapa);
-            
-            marcadoresColectivas.push(markerOrigen, markerDestino);
-            
-            const ruta = await calcularRutaOSRM(
-                c.origen_lng, c.origen_lat,
-                c.destino_lng, c.destino_lat
-            );
-            
-            if (ruta.geometry) {
-                const color = c.tipo === 'colectivo' ? '#10b981' : '#f59e0b';
-                const rutaLayer = L.geoJSON(ruta.geometry, {
-                    style: { 
-                        color: color, 
-                        weight: 4,
-                        opacity: 0.7
-                    }
-                }).addTo(mapa);
-                
-                marcadoresColectivas.push(rutaLayer);
-            }
-            
-            markerOrigen.bindPopup(`
-                <div style="text-align:center;min-width:150px">
-                    <strong>${iconoOrigen} ${c.tipo === 'colectivo' ? 'Colectiva' : 'Directa'}</strong><br>
-                    <div style="font-size:0.875rem;margin:0.5rem 0">${c.origen_direccion}</div>
-                    <div style="font-size:1.25rem;font-weight:bold;color:#10b981">L ${parseFloat(c.precio).toFixed(2)}</div>
-                    <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem">
-                        📏 ${c.distancia_km ? c.distancia_km.toFixed(1) : '—'} km • 
-                        ⏱️ ${c.tiempo_estimado_min || '—'} min
-                    </div>
-                </div>
-            `);
-            
-        } catch (error) {
-            console.error('Error mostrando carrera en mapa:', error);
-        }
-    }
-}
-
-// ============================================
-// UI
-// ============================================
-
-function inicializarGestos() {
-    const sheet = document.getElementById('bottomSheet');
-    const header = document.getElementById('sheetHeader');
-    let startY, isDragging = false;
-    
-    header.addEventListener('touchstart', (e) => {
-        startY = e.touches[0].clientY;
-        isDragging = true;
-    });
-    
-    header.addEventListener('touchmove', (e) => {
-        if (!isDragging) return;
-        const currentY = e.touches[0].clientY;
-        const diff = currentY - startY;
-        
-        if (diff > 50) {
-            sheet.classList.remove('expanded');
-        } else if (diff < -50) {
-            sheet.classList.add('expanded');
-        }
-    });
-    
-    header.addEventListener('touchend', () => {
-        isDragging = false;
-    });
-    
-    header.addEventListener('click', () => {
-        sheet.classList.toggle('expanded');
-    });
-}
-
-async function cambiarEstado(nuevoEstado) {
-    try {
-        document.getElementById('loader').classList.remove('hidden');
-        
-        await window.supabase
-            .from('conductores')
-            .update({ estado: nuevoEstado })
-            .eq('id', conductorId);
-        
-        conductorData.estado = nuevoEstado;
-        actualizarEstadoUI(nuevoEstado);
-        
-        mostrarNotificacion(
-            nuevoEstado === 'disponible' ? '¡Estás disponible!' : 'Estado: Inactivo',
-            nuevoEstado === 'disponible' ? 'success' : 'info'
-        );
-        
-        toggleMenu();
-        
-        if (nuevoEstado === 'disponible') {
-            await cargarTodasCarreras();
-        }
-        
-    } catch (error) {
-        alert('Error: ' + error.message);
-    } finally {
-        document.getElementById('loader').classList.add('hidden');
-    }
-}
-
-function actualizarEstadoUI(estado) {
-    const badge = document.getElementById('statusBadge');
-    const icon = document.getElementById('statusIcon');
-    const text = document.getElementById('statusText');
-    
-    badge.className = 'status-badge';
-    
-    if (estado === 'disponible') {
-        badge.classList.add('disponible');
-        icon.textContent = '🟢';
-        text.textContent = 'Disponible';
-    } else if (estado === 'en_carrera') {
-        badge.classList.add('en-carrera');
-        icon.textContent = '🟡';
-        text.textContent = 'En carrera';
-    } else {
-        badge.classList.add('inactivo');
-        icon.textContent = '⚪';
-        text.textContent = 'Inactivo';
-    }
-}
-
-function cambiarTab(tab) {
-    document.querySelectorAll('.sheet-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
-    
-    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`tab-${tab}`).style.display = 'block';
-}
-
-function toggleMenu() {
-    document.getElementById('sideMenu').classList.toggle('open');
-    document.getElementById('menuOverlay').classList.toggle('show');
-}
-
-function expandirCarrera(id) {
-    document.getElementById('bottomSheet').classList.add('expanded');
-}
-
-function mostrarNotificacion(mensaje, tipo) {
-    const notif = document.createElement('div');
-    notif.className = 'notification';
-    notif.textContent = mensaje;
-    document.body.appendChild(notif);
-    setTimeout(() => notif.remove(), 3000);
-}
-
-function reproducirSonido() {
-    try {
-        document.getElementById('notificationSound').play();
-    } catch (e) {}
+    div.innerHTML = data.map(c => `
+        <div class="card mb-2" onclick="recibirNuevaSolicitud({id:'${c.id}', tipo:'${c.tipo}', precio:${c.precio}, origen_direccion:'${c.origen_direccion}', origen_lat:${c.origen_lat}, origen_lng:${c.origen_lng}, destino_lat:${c.destino_lat}, destino_lng:${c.destino_lng}})">
+            <div style="display:flex; justify-content:space-between">
+                <strong>${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
+                <span style="color:#10b981; font-weight:bold">L ${c.precio}</span>
+            </div>
+            <p style="font-size:0.9em; margin:5px 0">${c.origen_direccion}</p>
+            <small style="color:#2563eb">Tocame para aceptar</small>
+        </div>
+    `).join('');
 }
 
 function suscribirseACambios() {
-    console.log('Suscribiéndose a cambios en tiempo real...');
+    window.supabaseClient
+        .channel('conductor-channel')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'carreras', filter: 'estado=eq.buscando' }, 
+        (payload) => {
+            // NUEVO VIAJE ENTRANTE
+            recibirNuevaSolicitud(payload.new);
+            cargarDisponibles(); // Actualizar lista fondo
+        })
+        .subscribe();
+}
+
+// MAPA HELPERS
+async function dibujarRuta(p1, p2, color) {
+    limpiarMapa();
+    // Marcadores
+    const m1 = L.marker([p1.lat, p1.lng]).addTo(mapa); // Yo
+    const m2 = L.marker([p2.lat, p2.lng]).addTo(mapa); // Destino
+    marcadoresRuta.push(m1, m2);
     
-    window.supabase
-        .channel('conductor-realtime')
-        .on('postgres_changes', {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'carreras'
-        }, async (payload) => {
-            console.log('✅ Nueva carrera insertada:', payload.new.id);
-            mostrarNotificacion('Nueva carrera disponible', 'info');
-            reproducirSonido();
-            await cargarCarrerasDisponibles();
-        })
-        .on('postgres_changes', {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'carreras'
-        }, async (payload) => {
-            const carrera = payload.new;
-            console.log('✅ Carrera actualizada:', carrera.id, carrera.estado);
-            
-            // Si es una carrera asignada a mí
-            if (carrera.conductor_id === conductorId && carrera.estado === 'asignada') {
-                mostrarNotificacion('¡Nueva carrera asignada!', 'success');
-                reproducirSonido();
-            }
-            
-            // Recargar todas las carreras
-            await cargarTodasCarreras();
-        })
-        .subscribe((status) => {
-            console.log('Estado suscripción:', status);
-            if (status === 'SUBSCRIBED') {
-                console.log('✅ Suscripción activa - Carreras en tiempo real funcionando');
-            }
-        });
+    // OSRM
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.routes && json.routes[0]) {
+            const ruta = L.geoJSON(json.routes[0].geometry, { style: { color: color, weight: 5 } }).addTo(mapa);
+            marcadoresRuta.push(ruta);
+            mapa.fitBounds(ruta.getBounds(), { padding: [50,50] });
+        }
+    } catch(e) { console.error('Error ruta', e); }
+}
+
+function mostrarRutaPreview(carrera) {
+    limpiarMapa();
+    // Mostrar Origen y Destino del cliente
+    const m1 = L.marker([carrera.origen_lat, carrera.origen_lng]).addTo(mapa).bindPopup('Recoger');
+    const m2 = L.marker([carrera.destino_lat, carrera.destino_lng]).addTo(mapa).bindPopup('Destino');
+    marcadoresRuta.push(m1, m2);
+    
+    // Ajustar vista para ver todo el viaje
+    const group = new L.featureGroup([m1, m2]);
+    mapa.fitBounds(group.getBounds(), { padding: [50,50] });
+}
+
+function limpiarMapa() {
+    marcadoresRuta.forEach(l => mapa.removeLayer(l));
+    marcadoresRuta = [];
 }
 
 async function cerrarSesion() {
-    if (confirm('¿Cerrar sesión?')) {
-        if (gpsInterval) clearInterval(gpsInterval);
-        if (trackingInterval) clearInterval(trackingInterval);
-        await cambiarEstado('inactivo');
-        await window.supabase.auth.signOut();
-        window.location.href = 'login.html';
-    }
+    if(!confirm('¿Salir?')) return;
+    await window.supabaseClient.auth.signOut();
+    window.location.href = 'conductor-login.html';
 }
 
-// ============================================
-// DEBUG
-// ============================================
-
-async function debugCarreras() {
-    console.log('=== 🐛 DEBUG ===');
-    
-    try {
-        const { data, error } = await window.supabase
-            .from('carreras')
-            .select('*')
-            .order('fecha_solicitud', { ascending: false })
-            .limit(10);
-        
-        if (error) {
-            alert('Error: ' + error.message);
-            return;
-        }
-        
-        console.log('Total carreras:', data ? data.length : 0);
-        
-        if (!data || data.length === 0) {
-            alert('❌ No hay carreras en la BD');
-            return;
-        }
-        
-        data.forEach((c, i) => {
-            console.log(`\nCarrera ${i + 1}:`, c.id, c.tipo, c.estado);
-        });
-        
-        const asignadas = data.filter(c => c.conductor_id === conductorId && c.estado === 'asignada');
-        const directas = data.filter(c => c.tipo === 'directo' && !c.conductor_id && ['solicitada', 'buscando'].includes(c.estado));
-        const colectivas = data.filter(c => c.tipo === 'colectivo' && !c.conductor_id && ['solicitada', 'buscando'].includes(c.estado));
-        const activas = data.filter(c => c.conductor_id === conductorId && ['aceptada', 'en_camino', 'en_curso'].includes(c.estado));
-        
-        alert(`Total: ${data.length}\nAsignadas: ${asignadas.length}\nDirectas disponibles: ${directas.length}\nColectivas disponibles: ${colectivas.length}\nEn curso: ${activas.length}`);
-        
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-// INIT
 window.addEventListener('load', init);
-window.addEventListener('orientationchange', () => {
-    setTimeout(() => mapa && mapa.invalidateSize(), 200);
-});
