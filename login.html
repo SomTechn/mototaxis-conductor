@@ -12,10 +12,7 @@
             align-items: center;
             min-height: 100vh;
             background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
-        
         .login-container {
             background: white;
             padding: 2rem;
@@ -24,30 +21,25 @@
             width: 100%;
             max-width: 450px;
         }
-        
         .logo {
             text-align: center;
             margin-bottom: 2rem;
         }
-        
         .logo h1 {
             font-size: 2rem;
             color: #f59e0b;
             margin-bottom: 0.5rem;
         }
-        
         .logo p {
             color: #6b7280;
             font-size: 0.875rem;
         }
-        
         .tabs {
             display: flex;
             gap: 0.5rem;
             margin-bottom: 2rem;
             border-bottom: 2px solid #e5e7eb;
         }
-        
         .tab {
             flex: 1;
             padding: 0.75rem;
@@ -60,48 +52,28 @@
             margin-bottom: -2px;
             transition: all 0.2s;
         }
-        
         .tab:hover {
             color: #f59e0b;
         }
-        
         .tab.active {
             color: #f59e0b;
             border-bottom-color: #f59e0b;
         }
-        
         .tab-content {
             display: none;
         }
-        
         .tab-content.active {
             display: block;
         }
-        
         .form-footer {
             text-align: center;
             margin-top: 1rem;
             font-size: 0.875rem;
             color: #6b7280;
         }
-        
         .form-footer a {
             color: #f59e0b;
             text-decoration: none;
-        }
-        
-        .error-message {
-            background: #fee;
-            color: #c00;
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-            font-size: 0.875rem;
-            display: none;
-        }
-        
-        .error-message.show {
-            display: block;
         }
     </style>
 </head>
@@ -111,8 +83,6 @@
             <h1>🏍️ Mototaxis</h1>
             <p>Portal de Conductores</p>
         </div>
-        
-        <div id="errorContainer" class="error-message"></div>
         
         <div class="tabs">
             <button class="tab active" data-tab="login">Iniciar Sesión</button>
@@ -196,80 +166,9 @@
         <p>Cargando...</p>
     </div>
     
-    <!-- Cargar Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    
-    <!-- Cargar configuración -->
     <script src="shared/config.js"></script>
-    
     <script>
-        console.log('🔄 Iniciando login.html...');
-        
-        // Función para mostrar errores
-        function mostrarError(mensaje) {
-            const errorContainer = document.getElementById('errorContainer');
-            errorContainer.textContent = mensaje;
-            errorContainer.classList.add('show');
-            
-            setTimeout(() => {
-                errorContainer.classList.remove('show');
-            }, 5000);
-        }
-        
-        // Función para ocultar loader
-        function ocultarLoader() {
-            const loader = document.getElementById('loader');
-            if (loader) loader.classList.add('hidden');
-        }
-        
-        // Función para mostrar loader
-        function mostrarLoader() {
-            const loader = document.getElementById('loader');
-            if (loader) loader.classList.remove('hidden');
-        }
-        
-        // Esperar a que Supabase esté listo
-        async function esperarSupabase() {
-            return new Promise((resolve, reject) => {
-                if (window.supabaseClient) {
-                    console.log('✅ Supabase ya está listo');
-                    resolve();
-                    return;
-                }
-                
-                let intentos = 0;
-                const maxIntentos = 50;
-                
-                const interval = setInterval(() => {
-                    intentos++;
-                    console.log(`Intento ${intentos}/${maxIntentos} esperando Supabase...`);
-                    
-                    if (window.supabaseClient) {
-                        clearInterval(interval);
-                        console.log('✅ Supabase conectado');
-                        resolve();
-                    } else if (intentos >= maxIntentos) {
-                        clearInterval(interval);
-                        reject(new Error('No se pudo cargar Supabase. Recarga la página.'));
-                    }
-                }, 100);
-            });
-        }
-        
-        // Inicializar cuando todo esté listo
-        async function init() {
-            try {
-                await esperarSupabase();
-                console.log('✅ Login listo para usar');
-                ocultarLoader();
-            } catch (error) {
-                console.error('❌ Error inicializando:', error);
-                mostrarError(error.message);
-                ocultarLoader();
-            }
-        }
-        
-        // Tabs
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -282,223 +181,75 @@
         // LOGIN
         document.getElementById('formLogin').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            const email = document.getElementById('loginEmail').value.trim();
+            const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
-            
-            if (!email || !password) {
-                mostrarError('Por favor completa todos los campos');
-                return;
-            }
-            
-            mostrarLoader();
+            document.getElementById('loader').classList.remove('hidden');
             
             try {
-                // Verificar que Supabase esté listo
-                if (!window.supabaseClient) {
-                    throw new Error('Supabase no está listo. Por favor recarga la página.');
-                }
+                const { data, error } = await window.supabase.auth.signInWithPassword({ email, password });
+                if (error) throw error;
                 
-                console.log('Intentando login con:', email);
-                
-                const { data, error } = await window.supabaseClient.auth.signInWithPassword({ 
-                    email, 
-                    password 
-                });
-                
-                if (error) {
-                    console.error('Error de login:', error);
-                    throw error;
-                }
-                
-                console.log('✅ Login exitoso:', data.user.email);
-                
-                // Verificar rol de conductor
-                const { data: perfil, error: perfilError } = await window.supabaseClient
-                    .from('perfiles')
-                    .select('rol, nombre')
-                    .eq('id', data.user.id)
-                    .single();
-                
-                if (perfilError) {
-                    console.error('Error cargando perfil:', perfilError);
-                    throw new Error('No se pudo verificar tu perfil');
-                }
-                
-                if (!perfil || perfil.rol !== 'conductor') {
-                    await window.supabaseClient.auth.signOut();
+                const { data: perfil } = await window.supabase.from('perfiles').select('rol').eq('id', data.user.id).single();
+                if (perfil && perfil.rol !== 'conductor') {
+                    await window.supabase.auth.signOut();
                     throw new Error('Este usuario no es un conductor');
                 }
                 
-                console.log('✅ Perfil verificado:', perfil.nombre);
-                
-                // Redirigir
                 window.location.href = 'index.html';
-                
             } catch (error) {
-                console.error('Error en login:', error);
-                
-                let mensaje = 'Error al iniciar sesión';
-                
-                if (error.message.includes('Invalid login credentials')) {
-                    mensaje = 'Email o contraseña incorrectos';
-                } else if (error.message.includes('Email not confirmed')) {
-                    mensaje = 'Por favor confirma tu email antes de iniciar sesión';
-                } else if (error.message) {
-                    mensaje = error.message;
-                }
-                
-                mostrarError(mensaje);
-                
+                alert('Error: ' + error.message);
             } finally {
-                ocultarLoader();
+                document.getElementById('loader').classList.add('hidden');
             }
         });
         
         // REGISTRO
         document.getElementById('formRegister').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            const nombre = document.getElementById('regNombre').value.trim();
-            const telefono = document.getElementById('regTelefono').value.trim();
-            const placa = document.getElementById('regPlaca').value.trim().toUpperCase();
-            const modelo = document.getElementById('regModelo').value.trim();
-            const color = document.getElementById('regColor').value.trim();
-            const email = document.getElementById('regEmail').value.trim();
+            const nombre = document.getElementById('regNombre').value;
+            const telefono = document.getElementById('regTelefono').value;
+            const placa = document.getElementById('regPlaca').value;
+            const modelo = document.getElementById('regModelo').value;
+            const color = document.getElementById('regColor').value;
+            const email = document.getElementById('regEmail').value;
             const password = document.getElementById('regPassword').value;
             const passwordConfirm = document.getElementById('regPasswordConfirm').value;
             
-            // Validaciones
-            if (!nombre || !telefono || !placa || !modelo || !color || !email || !password) {
-                mostrarError('Por favor completa todos los campos');
-                return;
-            }
-            
             if (password !== passwordConfirm) {
-                mostrarError('Las contraseñas no coinciden');
+                alert('Las contraseñas no coinciden');
                 return;
             }
             
-            if (password.length < 6) {
-                mostrarError('La contraseña debe tener al menos 6 caracteres');
-                return;
-            }
-            
-            mostrarLoader();
+            document.getElementById('loader').classList.remove('hidden');
             
             try {
-                // Verificar que Supabase esté listo
-                if (!window.supabaseClient) {
-                    throw new Error('Supabase no está listo. Por favor recarga la página.');
-                }
+                const { data: authData, error: authError } = await window.supabase.auth.signUp({ email, password });
+                if (authError) throw authError;
                 
-                console.log('Registrando usuario:', email);
+                await new Promise(r => setTimeout(r, 1500));
                 
-                // Crear usuario en Auth
-                const { data: authData, error: authError } = await window.supabaseClient.auth.signUp({ 
-                    email, 
-                    password 
+                const { error: perfilError } = await window.supabase.from('perfiles').insert({
+                    id: authData.user.id, nombre, telefono, rol: 'conductor', activo: true
                 });
                 
-                if (authError) {
-                    console.error('Error en signUp:', authError);
-                    throw authError;
-                }
+                if (perfilError && perfilError.code !== '23505') throw perfilError;
                 
-                console.log('✅ Usuario creado en Auth:', authData.user.id);
-                
-                // Esperar un poco para que Auth procese
-                await new Promise(r => setTimeout(r, 2000));
-                
-                // Crear perfil
-                const { error: perfilError } = await window.supabaseClient
-                    .from('perfiles')
-                    .insert({
-                        id: authData.user.id, 
-                        nombre, 
-                        telefono, 
-                        rol: 'conductor', 
-                        activo: true
-                    });
-                
-                if (perfilError && perfilError.code !== '23505') {
-                    console.error('Error creando perfil:', perfilError);
-                    throw perfilError;
-                }
-                
-                console.log('✅ Perfil creado');
-                
-                // Crear registro de conductor
-                const { error: conductorError } = await window.supabaseClient
-                    .from('conductores')
-                    .insert({
-                        perfil_id: authData.user.id, 
-                        placa, 
-                        modelo_moto: modelo, 
-                        color, 
-                        estado: 'inactivo'
-                    });
-                
-                if (conductorError && conductorError.code !== '23505') {
-                    console.error('Error creando conductor:', conductorError);
-                    throw conductorError;
-                }
-                
-                console.log('✅ Conductor creado');
-                
-                alert('✅ Cuenta creada exitosamente. Ahora puedes iniciar sesión.');
-                
-                // Iniciar sesión automáticamente
-                const { error: loginError } = await window.supabaseClient.auth.signInWithPassword({ 
-                    email, 
-                    password 
+                const { error: conductorError } = await window.supabase.from('conductores').insert({
+                    perfil_id: authData.user.id, placa, modelo_moto: modelo, color, estado: 'inactivo'
                 });
                 
-                if (loginError) {
-                    // Si falla el login automático, cambiar a tab de login
-                    document.querySelector('[data-tab="login"]').click();
-                    return;
-                }
+                if (conductorError && conductorError.code !== '23505') throw conductorError;
                 
-                // Redirigir
+                alert('Cuenta creada exitosamente');
+                
+                await window.supabase.auth.signInWithPassword({ email, password });
                 window.location.href = 'index.html';
-                
             } catch (error) {
-                console.error('Error en registro:', error);
-                
-                let mensaje = 'Error al crear la cuenta';
-                
-                if (error.message.includes('already registered')) {
-                    mensaje = 'Este email ya está registrado';
-                } else if (error.message.includes('unique constraint')) {
-                    mensaje = 'Esta placa ya está registrada';
-                } else if (error.message) {
-                    mensaje = error.message;
-                }
-                
-                mostrarError(mensaje);
-                
+                alert('Error: ' + error.message);
             } finally {
-                ocultarLoader();
+                document.getElementById('loader').classList.add('hidden');
             }
         });
-        
-        // Iniciar cuando cargue la página
-        window.addEventListener('load', init);
-        
-        // También escuchar el evento de Supabase listo
-        window.addEventListener('supabaseReady', () => {
-            console.log('✅ Evento supabaseReady recibido');
-            ocultarLoader();
-        });
-        
-        window.addEventListener('supabaseError', (event) => {
-            console.error('❌ Error de Supabase:', event.detail);
-            mostrarError('Error de conexión con la base de datos');
-            ocultarLoader();
-        });
-        
-        console.log('📄 Login.html cargado');
     </script>
 </body>
 </html>
