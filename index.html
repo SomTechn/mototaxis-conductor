@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Conductor - Mototaxis</title>
+    
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="shared/styles.css">
+    
+    <!-- Estilos compartidos -->
+    <link rel="stylesheet" href="../shared/styles.css">
+    
     <style>
         * { 
             box-sizing: border-box; 
@@ -13,12 +18,11 @@
         }
         body { 
             margin: 0; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             overflow: hidden;
             background: #000;
         }
         
-        /* Mapa de fondo */
         #map {
             position: fixed;
             top: 0;
@@ -28,7 +32,6 @@
             z-index: 1;
         }
         
-        /* Header flotante */
         .floating-header {
             position: fixed;
             top: 0;
@@ -72,7 +75,6 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         
-        /* Panel deslizante inferior */
         .bottom-sheet {
             position: fixed;
             bottom: 0;
@@ -152,7 +154,6 @@
             padding: 1rem;
         }
         
-        /* Carrera Card - Estilo Uber */
         .ride-card {
             background: white;
             border-radius: 1rem;
@@ -331,6 +332,11 @@
             color: white;
         }
         
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+        
         .btn-danger {
             background: #ef4444;
             color: white;
@@ -342,7 +348,6 @@
             color: #000;
         }
         
-        /* Stats flotantes */
         .floating-stats {
             position: fixed;
             top: 70px;
@@ -373,7 +378,6 @@
             font-weight: 600;
         }
         
-        /* Empty state */
         .empty-state {
             padding: 3rem 1rem;
             text-align: center;
@@ -390,7 +394,6 @@
             font-size: 0.875rem;
         }
         
-        /* Menu lateral */
         .side-menu {
             position: fixed;
             top: 0;
@@ -462,7 +465,6 @@
             to { transform: translateY(0); opacity: 1; }
         }
         
-        /* Tablet y Desktop */
         @media (min-width: 768px) {
             .bottom-sheet {
                 left: auto;
@@ -486,10 +488,8 @@
         <p>Cargando...</p>
     </div>
     
-    <!-- Mapa principal -->
     <div id="map"></div>
     
-    <!-- Header flotante -->
     <div class="floating-header">
         <button class="menu-btn" onclick="toggleMenu()">☰</button>
         <div class="status-badge inactivo" id="statusBadge">
@@ -498,7 +498,6 @@
         </div>
     </div>
     
-    <!-- Stats flotantes -->
     <div class="floating-stats">
         <div class="stat-card">
             <div class="stat-card-value" id="statCarreras">0</div>
@@ -510,13 +509,11 @@
         </div>
     </div>
     
-    <!-- Panel deslizante inferior -->
     <div class="bottom-sheet" id="bottomSheet">
         <div class="sheet-header" id="sheetHeader">
             <div class="sheet-handle"></div>
-            <!-- Botón de debug temporal -->
             <button onclick="debugCarreras()" style="position:absolute;right:1rem;top:0.5rem;padding:0.5rem;background:#ef4444;color:white;border:none;border-radius:0.5rem;font-size:0.75rem">
-                🐛 Debug
+                🛠 Debug
             </button>
         </div>
         
@@ -535,7 +532,6 @@
         </div>
         
         <div class="sheet-content">
-            <!-- Tab Disponibles -->
             <div id="tab-disponibles" class="tab-pane active">
                 <div id="carrerasDisponibles">
                     <div class="empty-state">
@@ -545,7 +541,6 @@
                 </div>
             </div>
             
-            <!-- Tab Activas -->
             <div id="tab-activas" class="tab-pane" style="display:none">
                 <div id="carrerasActivas">
                     <div class="empty-state">
@@ -555,7 +550,6 @@
                 </div>
             </div>
             
-            <!-- Tab Completadas -->
             <div id="tab-completadas" class="tab-pane" style="display:none">
                 <div id="carrerasCompletadas">
                     <div class="empty-state">
@@ -567,7 +561,6 @@
         </div>
     </div>
     
-    <!-- Menu lateral -->
     <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
     <div class="side-menu" id="sideMenu">
         <h2 style="margin-top:2rem">Menu</h2>
@@ -586,22 +579,16 @@
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYHGGS57OihUBELTKXh8bllHAU2jdXvz3knBSh+zPLaizsIGGS56+mjTxEJS6Lg8bllHAU1i9Tvz3YoBSh+y/HbiDgIGGS56+mjUBAKS6Pg8rpnHAU1i9Tv" type="audio/wav">
     </audio>
     
+    <!-- 1. Leaflet -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- 2. Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    <script src="shared/config.js"></script>
-    <script>
-        // Debug: verificar que todo cargó
-        console.log('=== VERIFICANDO DEPENDENCIAS ===');
-        console.log('Leaflet:', typeof L !== 'undefined' ? '✅' : '❌');
-        console.log('Supabase lib:', typeof window.supabase !== 'undefined' ? '✅' : '❌');
-        
-        // Si config.js no carga, mostrar error
-        setTimeout(() => {
-            if (typeof window.supabase === 'undefined') {
-                document.getElementById('loader').innerHTML = '<p style="color:red">Error: No se pudo cargar config.js<br>Verifica que el archivo existe en shared/config.js</p>';
-            }
-        }, 2000);
-    </script>
+    
+    <!-- 3. Config compartido -->
+    <script src="../shared/config.js"></script>
+    
+    <!-- 4. App del conductor -->
     <script src="app.js"></script>
 </body>
 </html>
