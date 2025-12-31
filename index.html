@@ -5,590 +5,209 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Conductor - Mototaxis</title>
     
-    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
-    <!-- Estilos compartidos -->
-    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="shared/styles.css">
     
     <style>
-        * { 
-            box-sizing: border-box; 
-            -webkit-tap-highlight-color: transparent;
-        }
-        body { 
-            margin: 0; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            overflow: hidden;
-            background: #000;
-        }
+        /* RESET & BASICS */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { margin: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; height: 100vh; background: #1a1a1a; }
         
-        #map {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
+        /* MAPA DE FONDO */
+        #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+
+        /* HEADER FLOTANTE (ESTADO) */
+        .status-header {
+            position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+            z-index: 100; background: white; padding: 0.5rem 1.5rem;
+            border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: flex; align-items: center; gap: 10px; font-weight: 600;
+            transition: all 0.3s;
         }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
+        .status-online .status-dot { background: #10b981; box-shadow: 0 0 10px #10b981; }
+        .status-busy .status-dot { background: #f59e0b; }
         
-        .floating-header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 100;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem;
-            background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
-        }
-        
-        .status-badge {
-            background: rgba(255,255,255,0.95);
-            padding: 0.5rem 1rem;
-            border-radius: 999px;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-weight: 600;
-            font-size: 0.875rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-        
-        .status-badge.disponible { color: #10b981; }
-        .status-badge.inactivo { color: #6b7280; }
-        .status-badge.en-carrera { color: #f59e0b; }
-        
+        /* BOTÓN MENÚ */
         .menu-btn {
-            background: rgba(255,255,255,0.95);
-            border: none;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.25rem;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            position: fixed; top: 1rem; left: 1rem; z-index: 100;
+            background: white; width: 45px; height: 45px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem;
         }
-        
+
+        /* BOTTOM SHEET (PANEL DESLIZANTE) */
         .bottom-sheet {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: white;
-            border-radius: 1.5rem 1.5rem 0 0;
-            z-index: 50;
-            transform: translateY(calc(100% - 180px));
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 -4px 24px rgba(0,0,0,0.2);
-            max-height: 85vh;
-            display: flex;
-            flex-direction: column;
+            position: fixed; bottom: 0; left: 0; width: 100%;
+            background: white; border-radius: 20px 20px 0 0;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.2); z-index: 200;
+            transition: transform 0.3s cubic-bezier(0.1, 0.7, 0.1, 1);
+            max-height: 85vh; display: flex; flex-direction: column;
         }
-        
-        .bottom-sheet.expanded {
-            transform: translateY(0);
-        }
-        
-        .sheet-header {
-            padding: 1rem;
-            cursor: grab;
-            user-select: none;
-        }
-        
         .sheet-handle {
-            width: 40px;
-            height: 4px;
-            background: #d1d5db;
-            border-radius: 999px;
-            margin: 0 auto 1rem;
+            width: 100%; height: 25px; display: flex; justify-content: center; align-items: center;
         }
+        .sheet-bar { width: 40px; height: 5px; background: #e5e7eb; border-radius: 3px; }
         
-        .sheet-tabs {
-            display: flex;
-            gap: 0.5rem;
-            padding: 0 1rem;
-            border-bottom: 1px solid #e5e7eb;
+        .sheet-content { padding: 0 1.5rem 1.5rem 1.5rem; overflow-y: auto; }
+
+        /* TABS */
+        .tabs { display: flex; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
+        .tab { flex: 1; padding: 10px; text-align: center; color: #666; font-weight: 600; border-bottom: 3px solid transparent; }
+        .tab.active { color: #2563eb; border-color: #2563eb; }
+
+        /* OVERLAY DE NUEVA SOLICITUD (TIPO UBER) */
+        #requestOverlay {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
+            background: #111827; z-index: 9999; overflow: hidden;
+            transition: height 0.3s ease-out; color: white;
+            display: flex; flex-direction: column;
         }
+        #requestOverlay.active { height: 100%; } /* Pantalla completa al recibir viaje */
+
+        .req-card {
+            background: #1f2937; margin: 1rem; padding: 1.5rem; border-radius: 1rem;
+            border: 2px solid #374151; margin-top: auto; margin-bottom: 2rem;
+            animation: pulse-border 2s infinite;
+        }
+        @keyframes pulse-border { 0% { border-color: #3b82f6; } 50% { border-color: #2563eb; box-shadow: 0 0 20px rgba(37,99,235,0.3); } 100% { border-color: #3b82f6; } }
+
+        .req-stats { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+        .req-stat { text-align: center; }
+        .req-val { font-size: 1.5rem; font-weight: bold; color: white; }
+        .req-label { font-size: 0.8rem; color: #9ca3af; }
         
-        .sheet-tab {
-            flex: 1;
-            padding: 0.75rem;
-            border: none;
-            background: none;
-            font-weight: 600;
-            font-size: 0.875rem;
-            color: #6b7280;
-            border-bottom: 3px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
+        .swipe-btn {
+            width: 100%; padding: 1.2rem; border-radius: 1rem; border: none;
+            font-size: 1.2rem; font-weight: bold; cursor: pointer; margin-top: 1rem;
         }
+        .btn-accept { background: #10b981; color: white; box-shadow: 0 4px 15px rgba(16,185,129,0.4); }
+        .btn-reject { background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 0.5rem; padding: 0.8rem; }
+
+        /* ESTILOS DE TARJETA EN CURSO */
+        .active-trip-card {
+            background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem;
+        }
+        .step-indicator {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        }
+        .step-circle {
+            width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white;
+            display: flex; align-items: center; justify-content: center; font-weight: bold;
+        }
+
+        /* ANIMACIÓN PUNTO GPS */
+        .rotating-marker { transition: transform 0.5s linear; }
         
-        .sheet-tab.active {
-            color: #000;
-            border-bottom-color: #000;
-        }
-        
-        .tab-badge {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            background: #ef4444;
-            color: white;
-            font-size: 0.625rem;
-            padding: 0.125rem 0.375rem;
-            border-radius: 999px;
-            font-weight: 700;
-        }
-        
-        .sheet-content {
-            flex: 1;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-            padding: 1rem;
-        }
-        
-        .ride-card {
-            background: white;
-            border-radius: 1rem;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-            border: 2px solid #e5e7eb;
-            transition: all 0.2s;
-            cursor: pointer;
-        }
-        
-        .ride-card:active {
-            transform: scale(0.98);
-        }
-        
-        .ride-card.nueva {
-            border-color: #f59e0b;
-            background: linear-gradient(135deg, #fffbeb 0%, white 100%);
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
-        }
-        
-        .ride-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-        
-        .ride-type {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-weight: 700;
-            font-size: 0.875rem;
-        }
-        
-        .ride-price {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: #000;
-        }
-        
-        .ride-route {
-            display: flex;
-            gap: 0.75rem;
-            margin-bottom: 1rem;
-        }
-        
-        .route-line {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.25rem;
-        }
-        
-        .route-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #10b981;
-        }
-        
-        .route-dots {
-            width: 2px;
-            height: 20px;
-            background: repeating-linear-gradient(
-                to bottom,
-                #d1d5db 0,
-                #d1d5db 2px,
-                transparent 2px,
-                transparent 4px
-            );
-        }
-        
-        .route-dot.destination {
-            background: #ef4444;
-        }
-        
-        .route-info {
-            flex: 1;
-        }
-        
-        .route-point {
-            margin-bottom: 0.5rem;
-        }
-        
-        .route-label {
-            font-size: 0.625rem;
-            color: #6b7280;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 0.125rem;
-        }
-        
-        .route-address {
-            font-size: 0.875rem;
-            color: #000;
-            font-weight: 500;
-            line-height: 1.3;
-        }
-        
-        .ride-stats {
-            display: flex;
-            gap: 1rem;
-            padding: 0.75rem;
-            background: #f9fafb;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-        }
-        
-        .stat-item {
-            display: flex;
-            align-items: center;
-            gap: 0.375rem;
-            font-size: 0.875rem;
-            color: #6b7280;
-        }
-        
-        .stat-value {
-            font-weight: 700;
-            color: #000;
-        }
-        
-        .ride-timer {
-            text-align: center;
-            padding: 0.75rem;
-            background: #fef3c7;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-        }
-        
-        .timer-text {
-            font-size: 0.75rem;
-            color: #92400e;
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-        }
-        
-        .timer-value {
-            font-size: 2rem;
-            font-weight: 800;
-            color: #ef4444;
-            font-feature-settings: 'tnum';
-        }
-        
-        .ride-actions {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
-        }
-        
-        .ride-actions.single {
-            grid-template-columns: 1fr;
-        }
-        
-        .btn {
-            padding: 1rem;
-            border: none;
-            border-radius: 0.75rem;
-            font-weight: 700;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .btn:active {
-            transform: scale(0.96);
-        }
-        
-        .btn-primary {
-            background: #000;
-            color: white;
-        }
-        
-        .btn-success {
-            background: #10b981;
-            color: white;
-        }
-        
-        .btn-secondary {
-            background: #6b7280;
-            color: white;
-        }
-        
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-        
-        .btn-outline {
-            background: white;
-            border: 2px solid #e5e7eb;
-            color: #000;
-        }
-        
-        .floating-stats {
-            position: fixed;
-            top: 70px;
-            right: 1rem;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        .stat-card {
-            background: rgba(255,255,255,0.95);
-            padding: 0.75rem 1rem;
-            border-radius: 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            min-width: 80px;
-        }
-        
-        .stat-card-value {
-            font-size: 1.25rem;
-            font-weight: 800;
-            color: #000;
-        }
-        
-        .stat-card-label {
-            font-size: 0.625rem;
-            color: #6b7280;
-            font-weight: 600;
-        }
-        
-        .empty-state {
-            padding: 3rem 1rem;
-            text-align: center;
-        }
-        
-        .empty-icon {
-            font-size: 4rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-        
-        .empty-text {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-        
-        .side-menu {
-            position: fixed;
-            top: 0;
-            left: -300px;
-            width: 300px;
-            height: 100%;
-            background: white;
-            z-index: 200;
-            transition: left 0.3s;
-            padding: 1rem;
-            box-shadow: 4px 0 24px rgba(0,0,0,0.2);
-        }
-        
-        .side-menu.open {
-            left: 0;
-        }
-        
-        .menu-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 199;
-            display: none;
-        }
-        
-        .menu-overlay.show {
-            display: block;
-        }
-        
-        .menu-item {
-            padding: 1rem;
-            border-bottom: 1px solid #e5e7eb;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        
-        .emoji-marker {
-            font-size: 2rem;
-            text-align: center;
-            line-height: 30px;
-        }
-        
-        .rotating-marker {
-            transition: transform 0.3s ease;
-        }
-        
-        .rotating-marker svg {
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-        }
-        
-        .notification {
-            position: fixed;
-            top: 1rem;
-            left: 1rem;
-            right: 1rem;
-            background: white;
-            padding: 1rem;
-            border-radius: 1rem;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            z-index: 300;
-            animation: slideDown 0.3s;
-        }
-        
-        @keyframes slideDown {
-            from { transform: translateY(-100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        
-        @media (min-width: 768px) {
-            .bottom-sheet {
-                left: auto;
-                right: 1rem;
-                bottom: 1rem;
-                width: 400px;
-                max-height: calc(100vh - 2rem);
-                border-radius: 1.5rem;
-                transform: translateY(0);
-            }
-            
-            .floating-stats {
-                display: none;
-            }
-        }
+        /* UTILIDADES */
+        .hidden { display: none !important; }
+        .loader-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; }
     </style>
 </head>
 <body>
-    <div id="loader" class="loader-fullscreen">
+    
+    <div id="loader" class="loader-overlay">
         <div class="loader"></div>
-        <p>Cargando...</p>
+        <p style="margin-top:1rem; color:#666">Conectando...</p>
     </div>
-    
+
+    <button class="menu-btn" onclick="toggleMenu()">☰</button>
+    <div class="status-header" id="statusBadge" onclick="toggleEstado()">
+        <div class="status-dot"></div>
+        <span id="statusText">Desconectado</span>
+    </div>
+
     <div id="map"></div>
-    
-    <div class="floating-header">
-        <button class="menu-btn" onclick="toggleMenu()">☰</button>
-        <div class="status-badge inactivo" id="statusBadge">
-            <span id="statusIcon">⚪</span>
-            <span id="statusText">Inactivo</span>
-        </div>
-    </div>
-    
-    <div class="floating-stats">
-        <div class="stat-card">
-            <div class="stat-card-value" id="statCarreras">0</div>
-            <div class="stat-card-label">HOY</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card-value" id="statGanancias">L 0</div>
-            <div class="stat-card-label">GANADO</div>
-        </div>
-    </div>
-    
-    <div class="bottom-sheet" id="bottomSheet">
-        <div class="sheet-header" id="sheetHeader">
-            <div class="sheet-handle"></div>
-            <button onclick="debugCarreras()" style="position:absolute;right:1rem;top:0.5rem;padding:0.5rem;background:#ef4444;color:white;border:none;border-radius:0.5rem;font-size:0.75rem">
-                🛠 Debug
-            </button>
+
+    <div id="requestOverlay">
+        <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:2rem; text-align:center">
+            <div style="font-size:4rem; margin-bottom:1rem; animation: bounce 1s infinite">🔔</div>
+            <h1 style="margin:0">¡Nueva Solicitud!</h1>
+            <p style="color:#9ca3af" id="reqType">Viaje Directo</p>
+            <div id="reqTimer" style="font-size:2rem; font-weight:bold; color:#f59e0b; margin-top:1rem">30s</div>
         </div>
         
-        <div class="sheet-tabs">
-            <button class="sheet-tab active" data-tab="disponibles" onclick="cambiarTab('disponibles')">
-                Disponibles
-                <span class="tab-badge" id="badgeDisponibles" style="display:none">0</span>
-            </button>
-            <button class="sheet-tab" data-tab="activas" onclick="cambiarTab('activas')">
-                En Curso
-                <span class="tab-badge" id="badgeActivas" style="display:none">0</span>
-            </button>
-            <button class="sheet-tab" data-tab="completadas" onclick="cambiarTab('completadas')">
-                Completadas
-            </button>
+        <div class="req-card">
+            <div class="req-stats">
+                <div class="req-stat">
+                    <div class="req-val" id="reqDist">- km</div>
+                    <div class="req-label">a recoger</div>
+                </div>
+                <div class="req-stat">
+                    <div class="req-val" style="color:#10b981" id="reqPrice">L -</div>
+                    <div class="req-label">Ganancia</div>
+                </div>
+            </div>
+            <div style="background:#374151; padding:1rem; border-radius:0.5rem; margin-bottom:1rem">
+                <p style="margin:0; font-size:0.9rem; color:#d1d5db">📍 Recoger en:</p>
+                <strong style="font-size:1.1rem" id="reqAddress">...</strong>
+            </div>
+            <button class="swipe-btn btn-accept" id="btnAccept" onclick="aceptarSolicitudActual()">DESLIZA PARA ACEPTAR</button>
+            <button class="swipe-btn btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
+        </div>
+    </div>
+
+    <div class="bottom-sheet" id="bottomSheet">
+        <div class="sheet-handle" onclick="toggleSheet()">
+            <div class="sheet-bar"></div>
         </div>
         
         <div class="sheet-content">
-            <div id="tab-disponibles" class="tab-pane active">
-                <div id="carrerasDisponibles">
-                    <div class="empty-state">
-                        <div class="empty-icon">🏍️</div>
-                        <div class="empty-text">No hay carreras disponibles</div>
-                    </div>
+            <div class="tabs" id="mainTabs">
+                <div class="tab active" onclick="switchTab('disponibles')">Disponibles (<span id="countDisp">0</span>)</div>
+                <div class="tab" onclick="switchTab('curso')">En Curso</div>
+            </div>
+
+            <div id="tab-disponibles">
+                <div id="listaDisponibles" style="padding-bottom:20px">
+                    <p style="text-align:center; color:#999; margin-top:2rem">
+                        Esperando solicitudes...<br>
+                        <small>Ponte "En Línea" para recibir viajes.</small>
+                    </p>
                 </div>
             </div>
-            
-            <div id="tab-activas" class="tab-pane" style="display:none">
-                <div id="carrerasActivas">
-                    <div class="empty-state">
-                        <div class="empty-icon">🚗</div>
-                        <div class="empty-text">No tienes carreras en curso</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="tab-completadas" class="tab-pane" style="display:none">
-                <div id="carrerasCompletadas">
-                    <div class="empty-state">
-                        <div class="empty-icon">✅</div>
-                        <div class="empty-text">No hay carreras completadas hoy</div>
-                    </div>
+
+            <div id="tab-curso" class="hidden">
+                <div id="viajeActivoContainer">
+                    <p style="text-align:center; color:#999">No tienes viaje activo</p>
                 </div>
             </div>
         </div>
     </div>
-    
-    <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-    <div class="side-menu" id="sideMenu">
-        <h2 style="margin-top:2rem">Menu</h2>
-        <div class="menu-item" onclick="cambiarEstado('disponible')">
-            🟢 Ponerme Disponible
-        </div>
-        <div class="menu-item" onclick="cambiarEstado('inactivo')">
-            ⚪ Desactivar
-        </div>
-        <div class="menu-item" style="border:none; color:#ef4444" onclick="cerrarSesion()">
-            Cerrar Sesión
-        </div>
+
+    <div id="sideMenu" style="position:fixed; top:0; left:-100%; width:80%; height:100%; background:white; z-index:500; transition:0.3s; padding:2rem; box-shadow: 2px 0 10px rgba(0,0,0,0.5)">
+        <h2>Menú Conductor</h2>
+        <h4 id="driverName" style="color:#666">...</h4>
+        <hr>
+        <button class="btn btn-primary btn-block mb-2" onclick="toggleEstado()">Cambiar Estado</button>
+        <button class="btn btn-danger btn-block" onclick="cerrarSesion()">Cerrar Sesión</button>
+        <button class="btn btn-secondary btn-block mt-2" onclick="toggleMenu()">Cerrar Menú</button>
     </div>
-    
-    <audio id="notificationSound" preload="auto">
-        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYHGGS57OihUBELTKXh8bllHAU2jdXvz3knBSh+zPLaizsIGGS56+mjTxEJS6Lg8bllHAU1i9Tvz3YoBSh+y/HbiDgIGGS56+mjUBAKS6Pg8rpnHAU1i9Tv" type="audio/wav">
-    </audio>
-    
-    <!-- 1. Leaflet -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <!-- 2. Supabase -->
+
+    <div id="toast-container"></div>
+    <audio id="alertSound" loop src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a"></audio>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
-    
-    <!-- 3. Config compartido -->
     <script src="../shared/config.js"></script>
-    
-    <!-- 4. App del conductor -->
-    <script src="app.js"></script>
+    <script src="conductor-app.js"></script>
+
+    <script>
+        // UI Helpers
+        function toggleMenu() {
+            const m = document.getElementById('sideMenu');
+            m.style.left = m.style.left === '0px' ? '-100%' : '0px';
+        }
+        function toggleSheet() {
+            const s = document.getElementById('bottomSheet');
+            // Simple toggle logic height
+        }
+        function switchTab(t) {
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-disponibles').classList.add('hidden');
+            document.getElementById('tab-curso').classList.add('hidden');
+            document.getElementById('tab-'+t).classList.remove('hidden');
+        }
+    </script>
 </body>
 </html>
