@@ -3,49 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Conductor</title>
+    <title>Driver Pro</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        :root { --dark: #121212; --card: #1E1E1E; --primary: #00E676; --text: #fff; }
+        :root { --dark: #121212; --card: #1E1E1E; --primary: #00E676; --text: #ffffff; --danger: #FF5252; }
         body { margin: 0; background: var(--dark); font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; color: var(--text); }
-        #map { position: fixed; inset: 0; z-index: 0; filter: grayscale(100%) invert(90%); }
-
-        /* TOP BAR */
-        .top-bar { position: absolute; top: 1rem; left: 1rem; right: 1rem; z-index: 10; display: flex; justify-content: space-between; }
-        .icon-btn { background: var(--card); border: none; width: 45px; height: 45px; border-radius: 50%; color: white; font-size: 20px; box-shadow: 0 4px 10px black; display: flex; align-items: center; justify-content: center; }
-        .status-pill { background: var(--card); padding: 0 20px; border-radius: 25px; display: flex; align-items: center; gap: 10px; font-weight: bold; box-shadow: 0 4px 10px black; }
-        .dot { width: 10px; height: 10px; border-radius: 50%; }
-        .online { background: var(--primary); box-shadow: 0 0 10px var(--primary); }
-        .offline { background: #555; }
-
-        /* ALERTA (OVERLAY) */
-        #alertOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; flex-direction: column; justify-content: center; padding: 20px; }
-        #alertOverlay.active { display: flex; animation: fadeIn 0.2s; }
-        .alert-box { background: #222; border: 1px solid #333; border-radius: 20px; padding: 20px; text-align: center; }
-        .alert-price { font-size: 40px; font-weight: 800; color: var(--primary); margin: 10px 0; }
-        .route-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; text-align: center; }
-        .info-cell { background: #333; padding: 10px; border-radius: 10px; }
         
-        /* SLIDER */
-        .slider { width: 100%; height: 60px; background: black; border-radius: 30px; position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid #444; margin-top: 20px; }
-        .slider-thumb { width: 52px; height: 52px; background: var(--primary); border-radius: 50%; position: absolute; left: 4px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: black; z-index: 2; cursor: grab; }
-        .slider-text { color: #666; font-weight: bold; animation: pulse 2s infinite; pointer-events: none; }
+        #map { position: fixed; inset: 0; z-index: 0; filter: grayscale(100%) invert(100%) contrast(1.2); }
 
-        /* CARD VIAJE */
-        #tripCard { display: none; position: absolute; bottom: 0; left: 0; width: 100%; background: var(--card); padding: 25px; border-radius: 20px 20px 0 0; z-index: 50; box-shadow: 0 -5px 20px black; }
-        .btn-main { width: 100%; padding: 18px; border-radius: 15px; border: none; font-weight: 800; font-size: 18px; margin-top: 15px; color: black; cursor: pointer; }
-        .btn-green { background: var(--primary); } .btn-blue { background: #2979FF; color: white; }
+        /* HEADER STATUS */
+        .top-bar { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 10; display: flex; justify-content: space-between; pointer-events: none; }
+        .icon-btn { pointer-events: auto; background: var(--card); border: 1px solid #333; width: 40px; height: 40px; border-radius: 12px; color: white; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; }
+        .status-pill { pointer-events: auto; background: var(--card); border: 1px solid #333; padding: 0 15px; height: 40px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .online { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+        .offline { background: #666; }
+        .busy { background: #FFD600; }
 
-        /* DRAWER */
-        .drawer { position: fixed; top: 0; left: -100%; width: 85%; height: 100%; background: var(--card); z-index: 200; transition: 0.3s; padding: 30px; }
-        .drawer.open { left: 0; }
-        .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 150; display: none; }
+        /* BOTÓN RECENTRAR (GPS) */
+        .gps-btn {
+            position: absolute; bottom: 340px; /* Ajustado para que no lo tape el panel */
+            right: 15px; width: 45px; height: 45px; background: white; color: black;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 22px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 15; cursor: pointer;
+            transition: bottom 0.3s;
+        }
+
+        /* ALERTA DE NUEVO VIAJE (Optimizada) */
+        #alertOverlay {
+            position: fixed; inset: 0; z-index: 50; 
+            display: none; flex-direction: column; justify-content: flex-end;
+            background: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 50%, rgba(0,0,0,0) 100%);
+            pointer-events: none; /* Permite ver el mapa arriba */
+        }
+        #alertOverlay.active { display: flex; }
         
-        .loader { position: fixed; inset: 0; background: #121212; z-index: 300; display: flex; align-items: center; justify-content: center; }
+        .alert-card {
+            pointer-events: auto; background: #181818; border-top: 1px solid #333;
+            border-radius: 24px 24px 0 0; padding: 20px; padding-bottom: 30px;
+            animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
+        }
+
+        .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .alert-type { font-size: 14px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+        .alert-price { font-size: 36px; font-weight: 800; color: var(--primary); line-height: 1; }
+
+        .route-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-box { background: #252525; padding: 10px; border-radius: 12px; text-align: center; border: 1px solid #333; }
+        .stat-val { font-size: 18px; font-weight: 700; color: white; }
+        .stat-lbl { font-size: 11px; color: #888; margin-top: 2px; }
+
+        .address-box { margin-bottom: 20px; }
+        .addr-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+        .addr-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .addr-text { font-size: 14px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* SLIDER COMPACTO */
+        .slider { width: 100%; height: 55px; background: #0a0a0a; border-radius: 28px; position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid #333; overflow: hidden; }
+        .slider-thumb { width: 48px; height: 48px; background: var(--primary); border-radius: 50%; position: absolute; left: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: black; z-index: 2; cursor: grab; box-shadow: 0 0 15px var(--primary); }
+        .slider-text { color: #555; font-weight: 700; font-size: 13px; letter-spacing: 1px; z-index: 1; pointer-events: none; animation: pulse 2s infinite; }
+
+        .btn-reject { width: 100%; padding: 12px; background: none; border: none; color: var(--danger); font-weight: 600; font-size: 14px; margin-top: 5px; cursor: pointer; }
+
+        /* VIAJE ACTIVO */
+        #tripCard { display: none; position: absolute; bottom: 0; left: 0; width: 100%; background: #1E1E1E; padding: 20px; border-radius: 24px 24px 0 0; z-index: 30; box-shadow: 0 -5px 20px black; border-top: 1px solid #333; }
+        .trip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .trip-title { font-size: 18px; font-weight: 700; color: white; }
+        .trip-eta { background: #333; padding: 4px 10px; border-radius: 8px; font-size: 12px; color: var(--primary); font-weight: bold; }
+        
+        .btn-main { width: 100%; padding: 16px; border-radius: 14px; border: none; font-weight: 800; font-size: 16px; margin-top: 15px; cursor: pointer; }
+        .btn-green { background: var(--primary); color: black; }
+        .btn-blue { background: #2979FF; color: white; }
+
+        /* ESTADISTICAS (HOME) */
+        #statsSheet { position: absolute; bottom: 0; width: 100%; background: #1E1E1E; padding: 20px; border-radius: 24px 24px 0 0; transition: transform 0.3s; z-index: 20; transform: translateY(0); }
+        #statsSheet.hidden { transform: translateY(100%); }
+        .earnings-display { text-align: center; margin-bottom: 20px; }
+        .earning-val { font-size: 40px; font-weight: 800; color: white; }
+        .earning-lbl { color: #888; font-size: 13px; text-transform: uppercase; }
+
+        .loader { position: fixed; inset: 0; background: #121212; z-index: 999; display: flex; align-items: center; justify-content: center; color: var(--primary); }
         .hidden { display: none !important; }
-        @keyframes pulse { 0%{opacity:0.5} 50%{opacity:1} 100%{opacity:0.5} }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+        
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
     </style>
 </head>
 <body>
@@ -55,78 +98,118 @@
         <button class="icon-btn" onclick="toggleDrawer()">☰</button>
         <div class="status-pill" onclick="toggleStatus()">
             <div id="statusDot" class="dot offline"></div>
-            <span id="statusTxt" style="margin-left:10px">Offline</span>
+            <span id="statusTxt">Offline</span>
         </div>
     </div>
 
+    <div id="gpsBtn" class="gps-btn" onclick="centrarMapa()">📍</div>
+
     <div id="map"></div>
 
+    <div id="statsSheet">
+        <div class="earnings-display">
+            <div class="earning-val" id="earnToday">L 0</div>
+            <div class="earning-lbl">Ganancia Hoy</div>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <div class="stat-box" style="flex:1">
+                <div class="stat-val" id="tripsToday">0</div>
+                <div class="stat-lbl">Viajes</div>
+            </div>
+            <div class="stat-box" style="flex:1; border-color:var(--primary)">
+                <div class="stat-val" style="color:var(--primary)" id="reqCount">0</div>
+                <div class="stat-lbl" style="color:var(--primary)">Solicitudes</div>
+            </div>
+        </div>
+        <div id="reqList" style="margin-top:15px; max-height:200px; overflow-y:auto;">
+            <p style="text-align:center; color:#555; font-size:12px">Esperando viajes...</p>
+        </div>
+    </div>
+
     <div id="alertOverlay">
-        <div class="alert-box">
-            <h2 style="margin:0; color:#aaa">Nueva Solicitud</h2>
-            <div class="alert-price" id="alertPrice">L 0</div>
+        <div style="position:absolute; top:80px; width:100%; text-align:center;">
+            <div style="background:rgba(0,0,0,0.8); display:inline-block; padding:5px 15px; border-radius:20px; border:1px solid #FFD600; color:#FFD600; font-weight:bold; font-size:14px;">
+                ⏱ <span id="reqTimer">30s</span>
+            </div>
+        </div>
+
+        <div class="alert-card">
+            <div class="alert-header">
+                <div class="alert-type" id="reqType">DIRECTO</div>
+                <div class="alert-price" id="alertPrice">L 0</div>
+            </div>
             
-            <div class="route-info">
-                <div class="info-cell">
-                    <div style="color:var(--primary); font-weight:bold; font-size:18px" id="timeToPick">-- min</div>
-                    <div style="font-size:11px; color:#aaa">A Recoger</div>
+            <div class="route-stats">
+                <div class="stat-box" style="border-color:#2979FF">
+                    <div class="stat-val" style="color:#2979FF" id="pickupDist">-- min</div>
+                    <div class="stat-lbl">A Recoger</div>
                 </div>
-                <div class="info-cell">
-                    <div style="color:white; font-weight:bold; font-size:18px" id="distTotal">-- km</div>
-                    <div style="font-size:11px; color:#aaa">Viaje Total</div>
+                <div class="stat-box">
+                    <div class="stat-val" id="totalDist">-- km</div>
+                    <div class="stat-lbl">Total Viaje</div>
                 </div>
             </div>
 
-            <div style="text-align:left; margin-bottom:10px">
-                <small style="color:#aaa">RECOGER EN</small>
-                <div style="font-weight:600" id="alertAddr">...</div>
+            <div class="address-box">
+                <div class="addr-row">
+                    <div class="addr-dot" style="background:#2979FF"></div>
+                    <div class="addr-text" id="alertAddrOrigin">...</div>
+                </div>
+                <div class="addr-row">
+                    <div class="addr-dot" style="background:var(--primary)"></div>
+                    <div class="addr-text" id="alertAddrDest">...</div>
+                </div>
             </div>
 
             <div class="slider" id="slider">
-                <div class="slider-text">DESLIZA PARA ACEPTAR >></div>
+                <div class="slider-text">DESLIZA PARA ACEPTAR</div>
                 <div class="slider-thumb" id="sliderThumb">➜</div>
             </div>
-            <button onclick="rechazar()" style="width:100%; background:none; border:1px solid #444; color:#aaa; padding:15px; border-radius: 12px; margin-top:15px">Rechazar</button>
+            <button class="btn-reject" onclick="rechazar()">Rechazar</button>
         </div>
     </div>
 
     <div id="tripCard">
-        <div style="display:flex; justify-content:space-between; align-items:center">
-            <h2 id="tripTitle" style="margin:0; color:var(--primary)">Yendo a Recoger</h2>
-            <div style="background:#333; padding:5px 10px; border-radius:8px; font-weight:bold" id="etaTxt">--:--</div>
-        </div>
-        <div style="font-size:18px; margin:10px 0; color:#ddd" id="tripDest">...</div>
-        <div style="display:flex; gap:10px; margin-top:20px">
-            <button class="icon-btn" onclick="openWaze()" style="flex:1; border-radius:10px">🗺️ Waze</button>
-            <button class="icon-btn" onclick="callClient()" style="flex:1; border-radius:10px">📞 Llamar</button>
-        </div>
-        <button id="tripBtn" class="btn-main btn-blue" onclick="tripAction()">Llegué</button>
-        <button onclick="cancelar()" style="width:100%; margin-top:15px; color:#FF5252; background:none; border:none; font-weight:bold">Cancelar Viaje</button>
-    </div>
-
-    <div class="drawer-overlay" onclick="toggleDrawer()"></div>
-    <div class="drawer" id="drawer">
-        <h2>Perfil</h2>
-        <h3 id="driverName" style="color:#aaa">...</h3>
-        <hr style="border-color:#333; margin:20px 0">
-        <div style="background:#222; padding:15px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between">
-            <span>Ganancia Hoy</span><strong style="color:var(--primary)" id="earnToday">L 0</strong>
-        </div>
-        <div style="background:#222; padding:15px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between">
-            <span>Viajes Hoy</span><strong style="color:white" id="tripsToday">0</strong>
-        </div>
-        <button onclick="logout()" style="color:#FF5252; background:none; border:none; font-size:18px; font-weight:bold; margin-top:auto">Cerrar Sesión</button>
-    </div>
-
-    <div id="rateModal" style="position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:100; display:none; align-items:center; justify-content:center">
-        <div class="alert-box">
-            <h3>Viaje Finalizado</h3>
-            <p>Califica al cliente</p>
-            <div style="font-size:40px; margin:20px 0">
-                <span onclick="rate(1)">⭐</span><span onclick="rate(5)">⭐</span>
+        <div class="trip-header">
+            <div>
+                <div style="font-size:12px; color:#aaa; font-weight:600">CLIENTE</div>
+                <div class="trip-title" id="tripClientName">...</div>
             </div>
-            <button class="btn-main btn-green" onclick="sendRate()">Enviar</button>
+            <div class="trip-eta" id="tripETA">-- min</div>
         </div>
+        
+        <div style="background:#2C2C2C; padding:15px; border-radius:12px; margin-bottom:15px; display:flex; align-items:center; gap:10px">
+            <div class="addr-dot" style="background:var(--primary)"></div>
+            <div style="font-size:16px; font-weight:600; color:white; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" id="tripDest">...</div>
+        </div>
+
+        <div style="display:flex; gap:10px">
+            <button class="stat-box" style="flex:1; cursor:pointer" onclick="navApp()">🗺️ Waze</button>
+            <button class="stat-box" style="flex:1; cursor:pointer" onclick="callClient()">📞 Llamar</button>
+        </div>
+        
+        <button id="tripBtn" class="btn-main btn-blue" onclick="tripAction()">Llegué</button>
+        <button onclick="cancelar()" style="width:100%; margin-top:10px; background:none; border:none; color:var(--danger); font-weight:bold">Cancelar Viaje</button>
+    </div>
+
+    <div id="rateModal" style="position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:100; display:none; align-items:center; justify-content:center">
+        <div style="background:#1E1E1E; padding:30px; border-radius:20px; width:85%; text-align:center; border:1px solid #333">
+            <h2 style="margin:0; color:white">¡Viaje Finalizado!</h2>
+            <p style="color:#aaa">Califica al pasajero</p>
+            <div style="font-size:40px; color:#555; margin:20px 0; cursor:pointer">
+                <span onclick="rate(1)">★</span><span onclick="rate(2)">★</span><span onclick="rate(3)">★</span><span onclick="rate(4)">★</span><span onclick="rate(5)">★</span>
+            </div>
+            <button onclick="sendRate()" class="btn-main btn-green" style="margin:0">Enviar</button>
+        </div>
+    </div>
+
+    <div id="drawerOverlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:60; display:none" onclick="toggleDrawer()"></div>
+    <div id="drawer" style="position:fixed; top:0; left:-100%; width:80%; height:100%; background:#1E1E1E; z-index:70; transition:0.3s; padding:30px">
+        <h2 style="color:white">Perfil</h2>
+        <h3 id="driverName" style="color:var(--primary)">...</h3>
+        <hr style="border-color:#333; margin:20px 0">
+        <div id="historyList" style="max-height:60vh; overflow-y:auto"></div>
+        <button onclick="logout()" style="position:absolute; bottom:30px; left:30px; right:30px; padding:15px; background:#FF5252; color:white; border:none; border-radius:12px; font-weight:bold">Cerrar Sesión</button>
     </div>
 
     <audio id="sound" loop src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a"></audio>
@@ -136,13 +219,14 @@
     <script src="../shared/config.js"></script>
     <script src="app.js"></script>
     <script>
-        function toggleDrawer() { document.getElementById('drawer').classList.toggle('open'); document.querySelector('.drawer-overlay').style.display = document.getElementById('drawer').classList.contains('open') ? 'block' : 'none'; }
-        // Fix back button
-        window.history.pushState(null, null, location.href);
-        window.onpopstate = function() {
-            window.history.pushState(null, null, location.href);
-            if(document.getElementById('drawer').classList.contains('open')) toggleDrawer();
-        };
+        function toggleDrawer() { 
+            const d = document.getElementById('drawer');
+            const o = document.getElementById('drawerOverlay');
+            d.style.left = d.style.left === '0px' ? '-100%' : '0px';
+            o.style.display = o.style.display === 'block' ? 'none' : 'block';
+            if(d.style.left === '0px') cargarHistorial();
+        }
+        function rate(n) { window.rating=n; document.querySelectorAll('span[onclick^="rate"]').forEach((s,i)=>s.style.color=i<n?'#FFD600':'#555'); }
     </script>
 </body>
 </html>
