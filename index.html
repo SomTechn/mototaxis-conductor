@@ -4,106 +4,70 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Conductor - Mototaxis</title>
-    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="../shared/styles.css">
-    
     <style>
         /* BASE */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; height: 100vh; background: #1a1a1a; }
-        
         #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
-        /* HEADER ESTADO */
+        /* HEADER */
         .status-header {
             position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
             z-index: 100; background: white; padding: 0.5rem 1.5rem;
             border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            display: flex; align-items: center; gap: 10px; font-weight: 600;
-            transition: all 0.3s; cursor: pointer;
+            display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer;
         }
         .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
         .status-online .status-dot { background: #10b981; box-shadow: 0 0 10px #10b981; }
         .status-busy .status-dot { background: #f59e0b; }
+        .menu-btn { position: fixed; top: 1rem; left: 1rem; z-index: 100; background: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem; cursor: pointer; }
+
+        /* OVERLAY ALERTA (MEJORADO) */
+        #requestOverlay {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
+            background: linear-gradient(to top, #111827 0%, #111827 80%, rgba(17,24,39,0) 100%);
+            z-index: 9999; overflow: visible; transition: height 0.3s ease-out; color: white;
+            display: flex; flex-direction: column; justify-content: flex-end; pointer-events: none;
+        }
+        #requestOverlay.active { height: 100%; pointer-events: auto; }
+
+        .req-content { padding: 1rem; width: 100%; pointer-events: auto; background: #1f2937; border-top-left-radius: 1.5rem; border-top-right-radius: 1.5rem; box-shadow: 0 -5px 30px rgba(0,0,0,0.5); }
         
-        .menu-btn {
-            position: fixed; top: 1rem; left: 1rem; z-index: 100;
-            background: white; width: 45px; height: 45px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem; cursor: pointer;
-        }
+        .req-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
+        .req-box { background: #374151; padding: 0.8rem; border-radius: 0.8rem; text-align: center; }
+        .req-box small { color: #9ca3af; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .req-box div { font-size: 1.1rem; font-weight: bold; margin-top: 2px; }
+        
+        .req-address-box { margin-bottom: 1rem; }
+        .req-address-row { display: flex; gap: 10px; margin-bottom: 0.5rem; align-items: center; }
+        .req-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        
+        /* SLIDER */
+        .slider-container { position: relative; width: 100%; height: 60px; background: #111827; border-radius: 30px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #4b5563; }
+        .slider-text { font-weight: bold; color: #9ca3af; pointer-events: none; z-index: 1; letter-spacing: 1px; animation: shine 2s infinite; font-size: 0.9rem; }
+        .slider-knob { position: absolute; left: 5px; top: 5px; width: 50px; height: 50px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; cursor: grab; z-index: 2; transition: transform 0.1s; box-shadow: 0 0 15px rgba(16,185,129,0.6); }
+        @keyframes shine { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
 
-        /* BOTTOM SHEET */
-        .bottom-sheet {
-            position: fixed; bottom: 0; left: 0; width: 100%;
-            background: white; border-radius: 20px 20px 0 0;
-            box-shadow: 0 -5px 20px rgba(0,0,0,0.2); z-index: 200;
-            max-height: 85vh; display: flex; flex-direction: column;
-        }
-        .sheet-handle { height: 25px; display: flex; justify-content: center; align-items: center; }
-        .sheet-bar { width: 40px; height: 5px; background: #e5e7eb; border-radius: 3px; }
-        .sheet-content { padding: 0 1.5rem 1.5rem 1.5rem; overflow-y: auto; }
+        .btn-reject { width: 100%; background: transparent; color: #ef4444; border: none; padding: 1rem; font-weight: bold; margin-top: 5px; }
 
+        /* BOTTOM SHEET NORMAL */
+        .bottom-sheet { position: fixed; bottom: 0; left: 0; width: 100%; background: white; border-radius: 20px 20px 0 0; box-shadow: 0 -5px 20px rgba(0,0,0,0.2); z-index: 200; max-height: 85vh; display: flex; flex-direction: column; }
+        .sheet-content { padding: 1rem; overflow-y: auto; }
+        .sheet-handle { height: 20px; display: flex; justify-content: center; align-items: center; }
+        .sheet-bar { width: 40px; height: 4px; background: #e5e7eb; border-radius: 2px; }
+        
         .tabs { display: flex; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
         .tab { flex: 1; padding: 10px; text-align: center; color: #666; font-weight: 600; border-bottom: 3px solid transparent; cursor: pointer; }
         .tab.active { color: #2563eb; border-color: #2563eb; }
 
-        /* --- ALERTA DE SOLICITUD (TRANSPARENTE) --- */
-        #requestOverlay {
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
-            /* Fondo gradiente transparente para ver el mapa */
-            background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0) 100%);
-            z-index: 9999; overflow: hidden;
-            transition: height 0.3s ease-out; color: white;
-            display: flex; flex-direction: column; justify-content: flex-end;
-            pointer-events: none; /* Dejar pasar clicks al mapa en la zona transparente */
-        }
-        #requestOverlay.active { height: 100%; pointer-events: auto; }
-
-        .req-content {
-            padding: 1.5rem;
-            width: 100%;
-            pointer-events: auto; /* Reactivar clicks en la tarjeta */
-        }
-
-        .req-card {
-            background: #1f2937; padding: 1.5rem; border-radius: 1rem;
-            border: 2px solid #374151; margin-bottom: 1rem;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-            animation: pulse-border 2s infinite;
-        }
-        @keyframes pulse-border { 0% { border-color: #3b82f6; } 50% { border-color: #2563eb; } 100% { border-color: #3b82f6; } }
-
-        .req-stats { display: flex; justify-content: space-between; margin-bottom: 1rem; }
-        .req-val { font-size: 1.5rem; font-weight: bold; }
-        .req-label { font-size: 0.8rem; color: #9ca3af; }
-
-        /* BOTÓN DESLIZANTE REAL */
-        .slider-container {
-            position: relative; width: 100%; height: 60px;
-            background: #374151; border-radius: 30px;
-            display: flex; align-items: center; justify-content: center;
-            overflow: hidden; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
-        }
-        .slider-text { font-weight: bold; color: #9ca3af; pointer-events: none; z-index: 1; letter-spacing: 1px; animation: shine 2s infinite; }
-        .slider-knob {
-            position: absolute; left: 5px; top: 5px;
-            width: 50px; height: 50px; border-radius: 50%;
-            background: #10b981; box-shadow: 0 2px 10px rgba(16,185,129,0.5);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.5rem; cursor: grab; z-index: 2;
-            transition: left 0.1s;
-        }
-        .slider-knob.active { cursor: grabbing; transform: scale(1.1); }
-        .btn-reject { width: 100%; background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 1rem; padding: 0.8rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold; }
-
-        @keyframes shine { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-
-        /* UTILIDADES */
+        /* CARD VIAJE ACTIVO */
         .active-trip-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem; }
-        .step-indicator { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .step-circle { width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .eta-display { text-align: center; margin-bottom: 1rem; background: white; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #dbeafe; }
+        .eta-time { font-size: 1.5rem; font-weight: 800; color: #2563eb; }
+        .eta-label { font-size: 0.8rem; color: #64748b; }
+
         .loader-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; }
         .rotating-marker { transition: transform 0.5s linear; }
         .hidden { display: none !important; }
@@ -114,50 +78,58 @@
 </head>
 <body>
     
-    <div id="loader" class="loader-overlay">
-        <div class="loader"></div>
-        <p style="margin-top:1rem; color:#666">Conectando...</p>
-    </div>
+    <div id="loader" class="loader-overlay"><div class="loader"></div><p style="margin-top:1rem;color:#666">Conectando...</p></div>
 
     <button class="menu-btn" onclick="toggleMenu()">☰</button>
     <div class="status-header" id="statusBadge" onclick="toggleEstado()">
-        <div class="status-dot"></div>
-        <span id="statusText">Desconectado</span>
+        <div class="status-dot"></div><span id="statusText">Desconectado</span>
     </div>
 
     <div id="map"></div>
 
     <div id="requestOverlay">
-        <div style="position:absolute; top: 80px; width:100%; text-align:center; pointer-events:none;">
-            <div style="background:rgba(0,0,0,0.7); display:inline-block; padding:0.5rem 1rem; border-radius:20px; color:white;">
+        <div style="position:absolute; top: 80px; width:100%; text-align:center;">
+            <div style="background:rgba(0,0,0,0.8); display:inline-block; padding:0.5rem 1rem; border-radius:20px; color:white; border:1px solid #f59e0b;">
                 <span id="reqType">Nueva Solicitud</span> • <span id="reqTimer" style="color:#f59e0b; font-weight:bold">30s</span>
             </div>
         </div>
 
         <div class="req-content">
-            <div class="req-card">
-                <div class="req-stats">
-                    <div class="req-stat">
-                        <div class="req-val" id="reqDist">- km</div>
-                        <div class="req-label">a recoger</div>
-                    </div>
-                    <div class="req-stat">
-                        <div class="req-val" style="color:#10b981" id="reqPrice">L -</div>
-                        <div class="req-label">Ganancia</div>
-                    </div>
-                </div>
-                <div style="background:#374151; padding:1rem; border-radius:0.5rem; margin-bottom:1.5rem">
-                    <p style="margin:0; font-size:0.9rem; color:#d1d5db">📍 Recoger en:</p>
-                    <strong style="font-size:1.1rem" id="reqAddress">...</strong>
-                </div>
-                
-                <div class="slider-container" id="sliderContainer">
-                    <div class="slider-text">DESLIZA PARA ACEPTAR >>>></div>
-                    <div class="slider-knob" id="sliderKnob">➜</div>
-                </div>
-
-                <button class="btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
+            <div style="text-align:center; margin-bottom:1rem">
+                <span style="font-size:2rem; font-weight:bold; color:#10b981" id="reqPrice">L --</span>
+                <span style="color:#9ca3af; font-size:0.9rem">Ganancia estimada</span>
             </div>
+
+            <div class="req-info-grid">
+                <div class="req-box" style="background:#312e81">
+                    <small>A Recoger (Tú)</small>
+                    <div style="color:#818cf8"><span id="reqPickupTime">--</span> <span style="font-size:0.8rem">min</span></div>
+                    <div style="font-size:0.8rem; color:#a5b4fc" id="reqPickupDist">-- km</div>
+                </div>
+                <div class="req-box">
+                    <small>Viaje Total</small>
+                    <div style="color:white"><span id="reqTripTime">--</span> <span style="font-size:0.8rem">min</span></div>
+                    <div style="font-size:0.8rem; color:#9ca3af" id="reqTripDist">-- km</div>
+                </div>
+            </div>
+
+            <div class="req-address-box">
+                <div class="req-address-row">
+                    <div class="req-dot" style="background:#10b981"></div>
+                    <div style="color:#d1d5db; font-size:0.9rem" id="reqAddressOrigin">...</div>
+                </div>
+                <div class="req-address-row">
+                    <div class="req-dot" style="background:#f59e0b"></div>
+                    <div style="color:#9ca3af; font-size:0.9rem" id="reqAddressDest">...</div>
+                </div>
+            </div>
+            
+            <div class="slider-container" id="sliderContainer">
+                <div class="slider-text">DESLIZA PARA ACEPTAR >></div>
+                <div class="slider-knob" id="sliderKnob">➜</div>
+            </div>
+
+            <button class="btn-reject" onclick="rechazarSolicitudActual()">Rechazar</button>
         </div>
     </div>
 
@@ -169,25 +141,23 @@
                 <div class="tab" onclick="switchTab('curso')">En Curso</div>
             </div>
             <div id="tab-disponibles">
-                <div id="listaDisponibles" style="padding-bottom:20px">
-                    <p style="text-align:center; color:#999; margin-top:2rem">Esperando solicitudes...</p>
+                <div id="listaDisponibles" style="padding-bottom:20px; text-align:center; color:#999; margin-top:2rem">
+                    Esperando solicitudes...
                 </div>
             </div>
             <div id="tab-curso" class="hidden">
-                <div id="viajeActivoContainer">
-                    <p style="text-align:center; color:#999">No tienes viaje activo</p>
-                </div>
+                <div id="viajeActivoContainer"></div>
             </div>
         </div>
     </div>
 
     <div id="sideMenu" style="position:fixed; top:0; left:-100%; width:80%; height:100%; background:white; z-index:500; transition:0.3s; padding:2rem; box-shadow: 2px 0 10px rgba(0,0,0,0.5)">
         <h2>Menú Conductor</h2>
-        <h4 id="driverName" style="color:#666">Cargando...</h4>
+        <h4 id="driverName" style="color:#666">...</h4>
         <hr>
         <button class="btn btn-primary btn-block mb-2" onclick="toggleEstado()">Cambiar Estado</button>
         <button class="btn btn-danger btn-block" onclick="cerrarSesion()">Cerrar Sesión</button>
-        <button class="btn btn-secondary btn-block mt-2" onclick="toggleMenu()">Cerrar Menú</button>
+        <button class="btn btn-secondary btn-block mt-2" onclick="toggleMenu()">Cerrar</button>
     </div>
 
     <div id="toast-container"></div>
