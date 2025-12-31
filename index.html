@@ -3,137 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Driver</title>
+    <title>Conductor</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --dark: #121212; --card: #1E1E1E; --primary: #00E676; --text: #ffffff; --danger: #FF5252; }
+        :root { --dark: #121212; --card: #1E1E1E; --primary: #00E676; --text: #fff; }
         body { margin: 0; background: var(--dark); font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; color: var(--text); }
-        
-        #map { position: fixed; inset: 0; z-index: 0; filter: grayscale(100%) invert(90%); /* Mapa oscuro */ }
+        #map { position: fixed; inset: 0; z-index: 0; filter: grayscale(100%) invert(90%); }
 
         /* TOP BAR */
         .top-bar { position: absolute; top: 1rem; left: 1rem; right: 1rem; z-index: 10; display: flex; justify-content: space-between; }
-        .icon-btn { background: var(--card); border: none; width: 45px; height: 45px; border-radius: 50%; color: white; font-size: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .status-pill { background: var(--card); padding: 0 20px; border-radius: 25px; display: flex; align-items: center; gap: 10px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; }
+        .icon-btn { background: var(--card); border: none; width: 45px; height: 45px; border-radius: 50%; color: white; font-size: 20px; box-shadow: 0 4px 10px black; display: flex; align-items: center; justify-content: center; }
+        .status-pill { background: var(--card); padding: 0 20px; border-radius: 25px; display: flex; align-items: center; gap: 10px; font-weight: bold; box-shadow: 0 4px 10px black; }
         .dot { width: 10px; height: 10px; border-radius: 50%; }
         .online { background: var(--primary); box-shadow: 0 0 10px var(--primary); }
         .offline { background: #555; }
 
-        /* BOTTOM SHEET ESTADISTICAS */
-        .sheet {
-            position: absolute; bottom: 0; left: 0; width: 100%;
-            background: var(--card); border-radius: 20px 20px 0 0;
-            padding: 20px; z-index: 20; max-height: 80vh; 
-            transition: transform 0.3s; transform: translateY(calc(100% - 100px)); /* Colapsado mostrando solo resumen */
-        }
-        .sheet.expanded { transform: translateY(0); }
-        .sheet-handle { width: 40px; height: 4px; background: #333; margin: 0 auto 20px auto; border-radius: 2px; }
-
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
-        .stat-box { background: #2C2C2C; padding: 15px; border-radius: 12px; text-align: center; }
-        .stat-num { font-size: 24px; font-weight: 800; }
-        .stat-lbl { font-size: 12px; color: #aaa; text-transform: uppercase; }
-
-        /* ALERTA DE NUEVO VIAJE (OVERLAY) */
-        #alertOverlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 50;
-            display: none; flex-direction: column; justify-content: flex-end; padding: 20px;
-        }
-        #alertOverlay.active { display: flex; }
-        
-        .alert-card { background: #1E1E1E; border-radius: 20px; padding: 25px; border: 1px solid #333; }
-        .price-lg { font-size: 48px; font-weight: 800; color: var(--primary); text-align: center; margin: 10px 0; }
-        .route-info { display: flex; justify-content: space-between; background: #2C2C2C; padding: 15px; border-radius: 12px; margin-bottom: 20px; }
+        /* ALERTA (OVERLAY) */
+        #alertOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; flex-direction: column; justify-content: center; padding: 20px; }
+        #alertOverlay.active { display: flex; animation: fadeIn 0.2s; }
+        .alert-box { background: #222; border: 1px solid #333; border-radius: 20px; padding: 20px; text-align: center; }
+        .alert-price { font-size: 40px; font-weight: 800; color: var(--primary); margin: 10px 0; }
+        .route-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; text-align: center; }
+        .info-cell { background: #333; padding: 10px; border-radius: 10px; }
         
         /* SLIDER */
-        .slider { width: 100%; height: 60px; background: #000; border-radius: 30px; position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid #333; }
+        .slider { width: 100%; height: 60px; background: black; border-radius: 30px; position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid #444; margin-top: 20px; }
         .slider-thumb { width: 52px; height: 52px; background: var(--primary); border-radius: 50%; position: absolute; left: 4px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: black; z-index: 2; cursor: grab; }
-        .slider-text { color: #555; font-weight: bold; letter-spacing: 1px; z-index: 1; }
+        .slider-text { color: #666; font-weight: bold; animation: pulse 2s infinite; pointer-events: none; }
 
-        /* CARD VIAJE ACTIVO */
-        #tripCard { display: none; position: absolute; bottom: 0; left: 0; width: 100%; background: var(--card); padding: 25px; border-radius: 20px 20px 0 0; z-index: 30; box-shadow: 0 -5px 20px black; }
-        .btn-main { width: 100%; padding: 18px; border-radius: 15px; border: none; font-weight: 800; font-size: 18px; margin-top: 15px; cursor: pointer; }
-        .btn-green { background: var(--primary); color: black; }
-        .btn-blue { background: #2979FF; color: white; }
+        /* CARD VIAJE */
+        #tripCard { display: none; position: absolute; bottom: 0; left: 0; width: 100%; background: var(--card); padding: 25px; border-radius: 20px 20px 0 0; z-index: 50; box-shadow: 0 -5px 20px black; }
+        .btn-main { width: 100%; padding: 18px; border-radius: 15px; border: none; font-weight: 800; font-size: 18px; margin-top: 15px; color: black; cursor: pointer; }
+        .btn-green { background: var(--primary); } .btn-blue { background: #2979FF; color: white; }
 
-        /* DRAWER LATERAL */
-        .drawer { position: fixed; top: 0; left: -100%; width: 85%; height: 100%; background: var(--card); z-index: 60; transition: 0.3s; padding: 30px; }
+        /* DRAWER */
+        .drawer { position: fixed; top: 0; left: -100%; width: 85%; height: 100%; background: var(--card); z-index: 200; transition: 0.3s; padding: 30px; }
         .drawer.open { left: 0; }
-        .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 55; display: none; }
-        .drawer-overlay.open { display: block; }
-
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 150; display: none; }
+        
+        .loader { position: fixed; inset: 0; background: #121212; z-index: 300; display: flex; align-items: center; justify-content: center; }
         .hidden { display: none !important; }
-        .loader { position: fixed; inset: 0; background: #121212; z-index: 100; display: flex; align-items: center; justify-content: center; color: var(--primary); }
+        @keyframes pulse { 0%{opacity:0.5} 50%{opacity:1} 100%{opacity:0.5} }
+        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
     </style>
 </head>
 <body>
-    <div id="loader" class="loader">Conectando...</div>
+    <div id="loader" class="loader">Iniciando...</div>
 
     <div class="top-bar">
         <button class="icon-btn" onclick="toggleDrawer()">☰</button>
         <div class="status-pill" onclick="toggleStatus()">
             <div id="statusDot" class="dot offline"></div>
-            <span id="statusTxt">Offline</span>
+            <span id="statusTxt" style="margin-left:10px">Offline</span>
         </div>
     </div>
 
     <div id="map"></div>
 
-    <div id="statsSheet" class="sheet" onclick="this.classList.toggle('expanded')">
-        <div class="sheet-handle"></div>
-        <div class="stats-grid">
-            <div class="stat-box">
-                <div class="stat-num" id="earnToday">L 0</div>
-                <div class="stat-lbl">Ganancia Hoy</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-num" id="tripsToday">0</div>
-                <div class="stat-lbl">Viajes</div>
-            </div>
-        </div>
-        <h3 style="margin-bottom:15px">Historial Reciente</h3>
-        <div id="miniHistory"></div>
-    </div>
-
     <div id="alertOverlay">
-        <div class="alert-card">
-            <h3 style="text-align:center; margin:0; color:#aaa">Nueva Solicitud</h3>
-            <div class="price-lg" id="alertPrice">L 0</div>
+        <div class="alert-box">
+            <h2 style="margin:0; color:#aaa">Nueva Solicitud</h2>
+            <div class="alert-price" id="alertPrice">L 0</div>
             
             <div class="route-info">
-                <div style="text-align:center">
-                    <div style="color:var(--primary); font-weight:bold" id="distPick">-- min</div>
-                    <div style="font-size:12px; color:#aaa">A Recoger</div>
+                <div class="info-cell">
+                    <div style="color:var(--primary); font-weight:bold; font-size:18px" id="timeToPick">-- min</div>
+                    <div style="font-size:11px; color:#aaa">A Recoger</div>
                 </div>
-                <div style="text-align:center">
-                    <div style="color:white; font-weight:bold" id="distTrip">-- km</div>
-                    <div style="font-size:12px; color:#aaa">Viaje Total</div>
+                <div class="info-cell">
+                    <div style="color:white; font-weight:bold; font-size:18px" id="distTotal">-- km</div>
+                    <div style="font-size:11px; color:#aaa">Viaje Total</div>
                 </div>
             </div>
 
-            <div style="margin-bottom:20px">
-                <div style="color:#aaa; font-size:12px">DIRECCIÓN</div>
-                <div style="font-size:16px; font-weight:600" id="alertAddr">...</div>
+            <div style="text-align:left; margin-bottom:10px">
+                <small style="color:#aaa">RECOGER EN</small>
+                <div style="font-weight:600" id="alertAddr">...</div>
             </div>
 
             <div class="slider" id="slider">
                 <div class="slider-text">DESLIZA PARA ACEPTAR >></div>
                 <div class="slider-thumb" id="sliderThumb">➜</div>
             </div>
-            <button onclick="rechazar()" style="width:100%; background:none; border:1px solid #333; color:#aaa; padding:15px; border-radius: 12px; margin-top:15px">Rechazar</button>
+            <button onclick="rechazar()" style="width:100%; background:none; border:1px solid #444; color:#aaa; padding:15px; border-radius: 12px; margin-top:15px">Rechazar</button>
         </div>
     </div>
 
     <div id="tripCard">
-        <h2 id="tripTitle" style="margin:0; color:var(--primary)">Yendo a Recoger</h2>
-        <div style="font-size:20px; font-weight:bold; margin:10px 0" id="tripDest">...</div>
-        <div style="display:flex; gap:10px">
-            <button class="icon-btn" onclick="navApp()">🗺️</button>
-            <button class="icon-btn" onclick="callClient()">📞</button>
+        <div style="display:flex; justify-content:space-between; align-items:center">
+            <h2 id="tripTitle" style="margin:0; color:var(--primary)">Yendo a Recoger</h2>
+            <div style="background:#333; padding:5px 10px; border-radius:8px; font-weight:bold" id="etaTxt">--:--</div>
+        </div>
+        <div style="font-size:18px; margin:10px 0; color:#ddd" id="tripDest">...</div>
+        <div style="display:flex; gap:10px; margin-top:20px">
+            <button class="icon-btn" onclick="openWaze()" style="flex:1; border-radius:10px">🗺️ Waze</button>
+            <button class="icon-btn" onclick="callClient()" style="flex:1; border-radius:10px">📞 Llamar</button>
         </div>
         <button id="tripBtn" class="btn-main btn-blue" onclick="tripAction()">Llegué</button>
-        <button onclick="cancelar()" style="width:100%; margin-top:10px; background:none; border:none; color:var(--danger)">Cancelar</button>
+        <button onclick="cancelar()" style="width:100%; margin-top:15px; color:#FF5252; background:none; border:none; font-weight:bold">Cancelar Viaje</button>
     </div>
 
     <div class="drawer-overlay" onclick="toggleDrawer()"></div>
@@ -141,7 +109,24 @@
         <h2>Perfil</h2>
         <h3 id="driverName" style="color:#aaa">...</h3>
         <hr style="border-color:#333; margin:20px 0">
-        <button onclick="logout()" style="color:var(--danger); background:none; border:none; font-size:18px; font-weight:bold">Cerrar Sesión</button>
+        <div style="background:#222; padding:15px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between">
+            <span>Ganancia Hoy</span><strong style="color:var(--primary)" id="earnToday">L 0</strong>
+        </div>
+        <div style="background:#222; padding:15px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between">
+            <span>Viajes Hoy</span><strong style="color:white" id="tripsToday">0</strong>
+        </div>
+        <button onclick="logout()" style="color:#FF5252; background:none; border:none; font-size:18px; font-weight:bold; margin-top:auto">Cerrar Sesión</button>
+    </div>
+
+    <div id="rateModal" style="position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:100; display:none; align-items:center; justify-content:center">
+        <div class="alert-box">
+            <h3>Viaje Finalizado</h3>
+            <p>Califica al cliente</p>
+            <div style="font-size:40px; margin:20px 0">
+                <span onclick="rate(1)">⭐</span><span onclick="rate(5)">⭐</span>
+            </div>
+            <button class="btn-main btn-green" onclick="sendRate()">Enviar</button>
+        </div>
     </div>
 
     <audio id="sound" loop src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a"></audio>
@@ -151,10 +136,13 @@
     <script src="../shared/config.js"></script>
     <script src="app.js"></script>
     <script>
-        function toggleDrawer() { 
-            document.getElementById('drawer').classList.toggle('open');
-            document.querySelector('.drawer-overlay').classList.toggle('open');
-        }
+        function toggleDrawer() { document.getElementById('drawer').classList.toggle('open'); document.querySelector('.drawer-overlay').style.display = document.getElementById('drawer').classList.contains('open') ? 'block' : 'none'; }
+        // Fix back button
+        window.history.pushState(null, null, location.href);
+        window.onpopstate = function() {
+            window.history.pushState(null, null, location.href);
+            if(document.getElementById('drawer').classList.contains('open')) toggleDrawer();
+        };
     </script>
 </body>
 </html>
