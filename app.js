@@ -1,5 +1,5 @@
 // ============================================
-// APP CONDUCTOR (FIX FINAL: REALTIME & ACCEPT)
+// APP CONDUCTOR (FIX 406 & OSRM)
 // ============================================
 
 console.log('=== INICIANDO APP CONDUCTOR ===');
@@ -44,13 +44,9 @@ async function init() {
 }
 
 async function esperarSupabase() {
-    return new Promise((resolve, reject) => {
-        if (window.supabaseClient) { resolve(); return; }
-        let i = 0;
-        const interval = setInterval(() => {
-            i++;
-            if (window.supabaseClient) { clearInterval(interval); resolve(); }
-            else if (i > 50) { clearInterval(interval); reject(new Error('Timeout DB')); }
+    return new Promise((resolve) => {
+        const i = setInterval(() => {
+            if (window.supabaseClient) { clearInterval(i); resolve(); }
         }, 100);
     });
 }
@@ -66,12 +62,11 @@ async function cargarDatosConductor() {
     const { data, error } = await window.supabaseClient
         .from('conductores').select('*, perfiles(nombre)').eq('perfil_id', usuario.id).maybeSingle();
 
-    if (error || !data) { alert('No se encontró perfil de conductor.'); return; }
+    if (error || !data) { alert('Perfil no encontrado'); return; }
     conductorId = data.id;
     conductorData = data;
-    
-    const elNombre = document.getElementById('driverName');
-    if (elNombre && data.perfiles) elNombre.textContent = data.perfiles.nombre;
+    const el = document.getElementById('driverName');
+    if (el && data.perfiles) el.textContent = data.perfiles.nombre;
     actualizarUIEstado(data.estado);
 }
 
@@ -96,45 +91,37 @@ function iniciarGPS() {
             miUbicacion = { lat: latitude, lng: longitude, heading: heading || 0 };
             actualizarMiMarcador();
             
-            // Actualizar DB (Throttle simple)
             if (conductorData && conductorData.estado !== 'inactivo') {
                 window.supabaseClient.from('conductores')
                     .update({ latitud: latitude, longitud: longitude, rumbo: heading, ultima_actualizacion: new Date() })
                     .eq('id', conductorId).then();
             }
-            
-            // Si no hay solicitud activa ni carrera, centrar en mí
             if (!solicitudActual && !carreraEnCurso) {
                  mapa.setView([latitude, longitude], 16, { animate: true });
             }
         },
-        (err) => console.warn('GPS:', err), { enableHighAccuracy: true }
+        (e) => console.warn(e), { enableHighAccuracy: true }
     );
 }
 
 function actualizarMiMarcador() {
     if (!miUbicacion || !mapa) return;
-    const iconHtml = `<div style="transform: rotate(${miUbicacion.heading}deg); transition: transform 0.5s;">
-        <svg width="40" height="40" viewBox="0 0 40 40">
-            <circle cx="20" cy="20" r="15" fill="#2563eb" stroke="white" stroke-width="2" />
-            <path d="M20 5 L28 25 L20 20 L12 25 Z" fill="white" />
-        </svg></div>`;
+    const iconHtml = `<div style="transform: rotate(${miUbicacion.heading}deg); transition: transform 0.5s;"><svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="15" fill="#2563eb" stroke="white" stroke-width="2"/><path d="M20 5 L28 25 L20 20 L12 25 Z" fill="white"/></svg></div>`;
     const icon = L.divIcon({ html: iconHtml, className: 'rotating-marker', iconSize: [40,40], iconAnchor: [20,20] });
-    
     if (miMarker) { miMarker.setLatLng([miUbicacion.lat, miUbicacion.lng]); miMarker.setIcon(icon); }
     else { miMarker = L.marker([miUbicacion.lat, miUbicacion.lng], { icon: icon }).addTo(mapa); }
 }
 
 // ============================================
-// 3. LOGICA Y REALTIME
+// 3. ESTADOS & REALTIME
 // ============================================
 
 async function cargarEstadoActual() {
-    const { data: carrera } = await window.supabaseClient.from('carreras').select('*')
+    const { data } = await window.supabaseClient.from('carreras').select('*')
         .eq('conductor_id', conductorId)
         .in('estado', ['asignada', 'aceptada', 'en_camino', 'en_curso']).maybeSingle();
 
-    if (carrera) { carreraEnCurso = carrera; mostrarPantallaViaje(carrera); }
+    if (data) { carreraEnCurso = data; mostrarPantallaViaje(data); }
     else { cargarDisponibles(); }
 }
 
@@ -149,7 +136,7 @@ async function toggleEstado() {
 function actualizarUIEstado(estado) {
     const badge = document.getElementById('statusBadge');
     const text = document.getElementById('statusText');
-    if (!badge || !text) return;
+    if (!badge) return;
     badge.className = 'status-header ' + (estado === 'disponible' ? 'status-online' : 'status-busy');
     text.textContent = estado === 'disponible' ? 'En Línea' : 'Desconectado';
     if (estado === 'en_carrera') { text.textContent = 'En Viaje'; badge.className = 'status-header status-busy'; }
@@ -159,13 +146,13 @@ function suscribirseACambios() {
     window.supabaseClient.channel('conductor-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'carreras' }, (payload) => {
             const nueva = payload.new;
-            // Nueva carrera disponible
+            // Nueva carrera
             if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && 
                 nueva.estado === 'buscando' && !nueva.conductor_id) {
                 recibirNuevaSolicitud(nueva);
                 cargarDisponibles();
             }
-            // Carrera tomada por otro o cancelada
+            // Carrera tomada/cancelada
             if (payload.eventType === 'UPDATE' && nueva.id === solicitudActual?.id) {
                 if (nueva.estado !== 'buscando' && nueva.conductor_id !== conductorId) {
                     limpiarAlerta();
@@ -176,7 +163,7 @@ function suscribirseACambios() {
 }
 
 // ============================================
-// 4. ALERTA DE SOLICITUD & SLIDER
+// 4. SOLICITUDES & ALERTA
 // ============================================
 
 async function recibirNuevaSolicitud(carrera) {
@@ -185,32 +172,32 @@ async function recibirNuevaSolicitud(carrera) {
 
     solicitudActual = carrera;
     
+    // Audio
+    const audio = document.getElementById('alertSound');
+    if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
+    if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+
     // UI Básica
-    safeText('reqPrice', 'L ' + carrera.precio);
+    safeText('reqType', carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo');
     safeText('reqAddressOrigin', carrera.origen_direccion);
     safeText('reqAddressDest', carrera.destino_direccion);
-    safeText('reqTripDist', carrera.distancia_km + ' km');
-    safeText('reqTripTime', carrera.tiempo_estimado_min);
+    safeText('reqPrice', 'L ' + carrera.precio);
+    safeText('reqTripDist', (carrera.distancia_km||0) + ' km');
+    safeText('reqTripTime', (carrera.tiempo_estimado_min||0));
 
-    // Calcular ruta hacia el cliente (Pickup)
-    safeText('reqPickupTime', 'Calculando...');
+    // UI Cálculo OSRM (Conductor -> Origen)
+    safeText('reqPickupTime', '...');
     safeText('reqPickupDist', '...');
     
     if (miUbicacion) {
-        // Cálculo OSRM: Conductor -> Origen Pasajero
-        const routePickup = await obtenerRutaOSRM(miUbicacion, { lat: carrera.origen_lat, lng: carrera.origen_lng });
-        if (routePickup) {
-            const min = Math.round(routePickup.duration / 60);
-            const km = (routePickup.distance / 1000).toFixed(1);
+        const rutaPickup = await obtenerRutaOSRM(miUbicacion, { lat: carrera.origen_lat, lng: carrera.origen_lng });
+        if (rutaPickup) {
+            const min = Math.round(rutaPickup.duration / 60);
+            const km = (rutaPickup.distance / 1000).toFixed(1);
             safeText('reqPickupTime', min);
             safeText('reqPickupDist', km + ' km');
         }
     }
-
-    // Audio y Vibración
-    const audio = document.getElementById('alertSound');
-    if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
-    if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
 
     document.getElementById('requestOverlay').classList.add('active');
     
@@ -228,7 +215,7 @@ async function recibirNuevaSolicitud(carrera) {
     mostrarRutaPreview(carrera);
 }
 
-// OSRM Helper
+// OSRM
 async function obtenerRutaOSRM(start, end) {
     try {
         const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`;
@@ -239,68 +226,57 @@ async function obtenerRutaOSRM(start, end) {
     return null;
 }
 
-// SLIDER LOGIC
+// SLIDER
 function inicializarSlider() {
     const slider = document.getElementById('sliderContainer');
     const knob = document.getElementById('sliderKnob');
-    let isDragging = false, startX = 0, containerWidth = 0;
+    let isDragging = false, startX = 0, cw = 0;
 
-    const start = (e) => {
-        isDragging = true;
-        startX = e.touches ? e.touches[0].clientX : e.clientX;
-        containerWidth = slider.offsetWidth - knob.offsetWidth;
-    };
+    const start = (e) => { isDragging = true; startX = e.touches ? e.touches[0].clientX : e.clientX; cw = slider.offsetWidth - knob.offsetWidth; };
     const move = (e) => {
         if (!isDragging) return;
-        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        let x = clientX - startX;
-        if (x < 0) x = 0; else if (x > containerWidth) x = containerWidth;
+        let cx = e.touches ? e.touches[0].clientX : e.clientX;
+        let x = cx - startX;
+        if (x < 0) x = 0; else if (x > cw) x = cw;
         knob.style.transform = `translateX(${x}px)`;
-        document.querySelector('.slider-text').style.opacity = 1 - (x/containerWidth);
+        document.querySelector('.slider-text').style.opacity = 1 - (x/cw);
     };
-    const end = (e) => {
+    const end = () => {
         if (!isDragging) return;
         isDragging = false;
         let x = new WebKitCSSMatrix(window.getComputedStyle(knob).transform).m41;
-        if (x > containerWidth * 0.9) aceptarSolicitudActual();
-        else {
-            knob.style.transform = 'translateX(0px)';
-            document.querySelector('.slider-text').style.opacity = 1;
-        }
+        if (x > cw * 0.9) aceptarSolicitudActual();
+        else { knob.style.transform = 'translateX(0px)'; document.querySelector('.slider-text').style.opacity = 1; }
     };
 
-    knob.addEventListener('mousedown', start);
-    knob.addEventListener('touchstart', start);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('touchmove', move);
-    window.addEventListener('mouseup', end);
-    window.addEventListener('touchend', end);
+    knob.addEventListener('mousedown', start); knob.addEventListener('touchstart', start);
+    window.addEventListener('mousemove', move); window.addEventListener('touchmove', move);
+    window.addEventListener('mouseup', end); window.addEventListener('touchend', end);
 }
 
 function resetSlider() {
-    const knob = document.getElementById('sliderKnob');
-    if(knob) knob.style.transform = 'translateX(0px)';
-    const txt = document.querySelector('.slider-text');
-    if(txt) txt.style.opacity = 1;
+    const k = document.getElementById('sliderKnob');
+    if(k) k.style.transform = 'translateX(0px)';
+    document.querySelector('.slider-text').style.opacity = 1;
 }
 
+// ACEPTAR (CORREGIDO ERROR 406)
 async function aceptarSolicitudActual() {
     if (!solicitudActual) return;
     const id = solicitudActual.id;
     limpiarAlerta();
 
     try {
-        // CORRECCIÓN ERROR 406: Usar maybeSingle()
         const { data, error } = await window.supabaseClient
             .from('carreras')
             .update({ conductor_id: conductorId, estado: 'aceptada', fecha_aceptacion: new Date() })
             .eq('id', id)
             .is('conductor_id', null)
             .select()
-            .maybeSingle();
+            .maybeSingle(); // FIX 406
 
         if (error || !data) {
-            alert('Error: Otro conductor tomó el viaje o expiró.');
+            alert('Error: Otro conductor tomó el viaje.');
             cargarDisponibles();
         } else {
             carreraEnCurso = data;
@@ -308,28 +284,21 @@ async function aceptarSolicitudActual() {
             conductorData.estado = 'en_carrera';
             mostrarPantallaViaje(data);
         }
-    } catch (e) { 
-        console.error(e); 
-        alert('Error de conexión'); 
-    }
+    } catch (e) { alert('Error red'); }
 }
 
-function rechazarSolicitudActual(auto = false) {
-    limpiarAlerta();
-    cargarDisponibles();
-}
+function rechazarSolicitudActual() { limpiarAlerta(); cargarDisponibles(); }
 
 function limpiarAlerta() {
     document.getElementById('requestOverlay').classList.remove('active');
-    const audio = document.getElementById('alertSound');
-    if (audio) audio.pause();
+    document.getElementById('alertSound').pause();
     clearInterval(timerSolicitud);
     solicitudActual = null;
     limpiarMapa();
 }
 
 // ============================================
-// 5. GESTIÓN VIAJE ACTIVO
+// 5. VIAJE ACTIVO
 // ============================================
 
 async function mostrarPantallaViaje(carrera) {
@@ -339,46 +308,41 @@ async function mostrarPantallaViaje(carrera) {
     if (!container) return;
     
     // Calcular ETA
-    let destinoCoords = (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') 
+    let dest = (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') 
         ? { lat: carrera.origen_lat, lng: carrera.origen_lng }
         : { lat: carrera.destino_lat, lng: carrera.destino_lng };
     
-    let etaText = '--:--';
+    let etaText = '--:--', route = null;
     if (miUbicacion) {
-        const route = await obtenerRutaOSRM(miUbicacion, destinoCoords);
+        route = await obtenerRutaOSRM(miUbicacion, dest);
         if (route) {
             const min = Math.round(route.duration / 60);
-            const arrival = new Date(new Date().getTime() + min*60000);
-            etaText = arrival.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            etaText = new Date(Date.now() + min*60000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         }
     }
 
-    let titulo = 'Yendo a Recoger', btnMain = '', color = '#f59e0b';
-    
+    let titulo = 'Yendo a Recoger', btn = '', color = '#f59e0b';
     if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
-        btnMain = `<button class="btn btn-primary btn-block" onclick="reportarLlegada()">📍 ¡Ya llegué!</button>`;
-        if (miUbicacion) dibujarRuta(miUbicacion, destinoCoords, '#f59e0b');
+        btn = `<button class="swipe-btn btn-accept" onclick="reportarLlegada()">LLEGUÉ AL PUNTO</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, dest, '#f59e0b');
     } else {
         titulo = 'Llevando al Destino'; color = '#10b981';
-        btnMain = `<button class="btn btn-success btn-block" onclick="completarViaje()">🏁 Finalizar (Cobrar L ${carrera.precio})</button>`;
-        if (miUbicacion) dibujarRuta(miUbicacion, destinoCoords, '#10b981');
+        btn = `<button class="swipe-btn btn-accept" onclick="completarViaje()">FINALIZAR VIAJE</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, dest, '#10b981');
     }
 
     container.innerHTML = `
         <div class="active-trip-card" style="border-left: 5px solid ${color}">
-            <div class="eta-display">
-                <div class="eta-label">LLEGADA ESTIMADA</div>
-                <div class="eta-time">${etaText}</div>
-            </div>
+            <div class="eta-display"><div class="eta-label">LLEGADA ESTIMADA</div><div class="eta-time">${etaText}</div></div>
             <h3 style="margin:0 0 1rem 0; color:${color}">${titulo}</h3>
             <div class="step-indicator"><div class="step-circle">1</div><div><small>Recoger:</small><br><strong>${carrera.origen_direccion}</strong></div></div>
             <div class="step-indicator"><div class="step-circle">2</div><div><small>Destino:</small><br><strong>${carrera.destino_direccion}</strong></div></div>
             <div style="display:flex; gap:10px; margin: 1rem 0">
-                <button class="btn btn-secondary" style="flex:1" onclick="window.open('https://waze.com/ul?ll=${destinoCoords.lat},${destinoCoords.lng}&navigate=yes')">🗺️ Waze</button>
-                <button class="btn btn-secondary" style="flex:1" onclick="window.open('tel:+50400000000')">📞 Llamar</button>
+                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes')">🗺️ Waze</button>
+                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('tel:+50400000000')">📞 Llamar</button>
             </div>
-            ${btnMain}
-            <button class="btn btn-danger btn-block mt-2" onclick="cancelarViaje()">⚠ Cancelar</button>
+            ${btn}
+            <button class="btn-reject" onclick="cancelarViaje()">Cancelar Viaje</button>
         </div>`;
 }
 
@@ -422,13 +386,13 @@ async function cargarDisponibles() {
     }
     
     div.innerHTML = data.map(c => `
-        <div class="card mb-2" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})' style="background:white; border:1px solid #eee; padding:1rem; border-radius:0.5rem; margin-bottom:0.5rem">
+        <div class="req-card" style="padding:1rem; margin-bottom:0.5rem; animation:none; border:1px solid #374151" onclick='recibirNuevaSolicitud(${JSON.stringify(c)})'>
             <div style="display:flex; justify-content:space-between">
-                <strong>${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
+                <strong style="color:white">${c.tipo === 'directo' ? '⚡ Directo' : '👥 Colectivo'}</strong>
                 <span style="color:#10b981; font-weight:bold">L ${c.precio}</span>
             </div>
-            <p style="font-size:0.9em; margin:5px 0">${c.origen_direccion}</p>
-            <small style="color:#2563eb">Toca para ver detalles</small>
+            <p style="font-size:0.9em; margin:5px 0; color:#9ca3af">${c.origen_direccion}</p>
+            <small style="color:#3b82f6">Toca para ver detalles</small>
         </div>`).join('');
 }
 
@@ -466,14 +430,13 @@ async function cerrarSesion() {
     window.location.href = 'login.html';
 }
 
-// Helpers globales
-window.toggleMenu = function() { const m = document.getElementById('sideMenu'); if(m) m.style.left = m.style.left === '0px' ? '-100%' : '0px'; };
-window.switchTab = function(t) {
+function toggleMenu() { document.getElementById('sideMenu').style.left = document.getElementById('sideMenu').style.left === '0px' ? '-100%' : '0px'; }
+function switchTab(t) {
     document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
     event.target.classList.add('active');
     document.getElementById('tab-disponibles').classList.add('hidden');
     document.getElementById('tab-curso').classList.add('hidden');
     document.getElementById('tab-'+t).classList.remove('hidden');
-};
+}
 
 window.addEventListener('load', init);
