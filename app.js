@@ -52,7 +52,7 @@ async function esperarSupabase() {
 
 async function verificarSesion() {
     const { data: { session }, error } = await window.supabaseClient.auth.getSession();
-    if (!session || error) { window.location.href = 'conductor-login.html'; return false; }
+    if (!session || error) { window.location.href = 'login.html'; return false; }
     usuario = session.user;
     return true;
 }
