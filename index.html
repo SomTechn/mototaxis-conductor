@@ -7,71 +7,88 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="../shared/styles.css">
     <style>
-        /* BASE */
+        /* RESET */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; height: 100vh; background: #1a1a1a; }
         #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
         /* HEADER */
-        .status-header {
-            position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
-            z-index: 100; background: white; padding: 0.5rem 1.5rem;
-            border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer;
-        }
+        .status-header { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 100; background: white; padding: 0.5rem 1.5rem; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
         .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
         .status-online .status-dot { background: #10b981; box-shadow: 0 0 10px #10b981; }
         .status-busy .status-dot { background: #f59e0b; }
         .menu-btn { position: fixed; top: 1rem; left: 1rem; z-index: 100; background: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; font-size: 1.5rem; cursor: pointer; }
 
-        /* OVERLAY ALERTA (MEJORADO) */
+        /* --- CORRECCIÓN DEL OVERLAY --- */
         #requestOverlay {
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 0;
-            background: linear-gradient(to top, #111827 0%, #111827 80%, rgba(17,24,39,0) 100%);
-            z-index: 9999; overflow: visible; transition: height 0.3s ease-out; color: white;
-            display: flex; flex-direction: column; justify-content: flex-end; pointer-events: none;
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; /* Ocupa toda la pantalla para bloquear toques */
+            background: rgba(0,0,0,0.6); /* Fondo semitransparente */
+            z-index: 9999; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: flex-end;
+            
+            /* ESTADO INICIAL: OCULTO FUERA DE PANTALLA */
+            transform: translateY(120%); 
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none; /* No bloquear mapa cuando está oculto */
         }
-        #requestOverlay.active { height: 100%; pointer-events: auto; }
-
-        .req-content { padding: 1rem; width: 100%; pointer-events: auto; background: #1f2937; border-top-left-radius: 1.5rem; border-top-right-radius: 1.5rem; box-shadow: 0 -5px 30px rgba(0,0,0,0.5); }
         
+        #requestOverlay.active { 
+            transform: translateY(0%); /* SE MUESTRA */
+            pointer-events: auto;
+        }
+
+        .req-content {
+            background: #1f2937;
+            border-top-left-radius: 1.5rem;
+            border-top-right-radius: 1.5rem;
+            padding: 1.5rem;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+            width: 100%;
+        }
+
+        /* Resto de estilos igual... */
         .req-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
         .req-box { background: #374151; padding: 0.8rem; border-radius: 0.8rem; text-align: center; }
         .req-box small { color: #9ca3af; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
-        .req-box div { font-size: 1.1rem; font-weight: bold; margin-top: 2px; }
+        .req-box div { font-size: 1.1rem; font-weight: bold; margin-top: 2px; color: white; }
         
         .req-address-box { margin-bottom: 1rem; }
         .req-address-row { display: flex; gap: 10px; margin-bottom: 0.5rem; align-items: center; }
         .req-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
         
-        /* SLIDER */
-        .slider-container { position: relative; width: 100%; height: 60px; background: #111827; border-radius: 30px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #4b5563; }
+        /* SLIDER CORREGIDO */
+        .slider-container { position: relative; width: 100%; height: 60px; background: #111827; border-radius: 30px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #4b5563; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5); }
         .slider-text { font-weight: bold; color: #9ca3af; pointer-events: none; z-index: 1; letter-spacing: 1px; animation: shine 2s infinite; font-size: 0.9rem; }
         .slider-knob { position: absolute; left: 5px; top: 5px; width: 50px; height: 50px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; cursor: grab; z-index: 2; transition: transform 0.1s; box-shadow: 0 0 15px rgba(16,185,129,0.6); }
         @keyframes shine { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
 
-        .btn-reject { width: 100%; background: transparent; color: #ef4444; border: none; padding: 1rem; font-weight: bold; margin-top: 5px; }
+        .btn-reject { width: 100%; background: transparent; color: #ef4444; border: none; padding: 1rem; font-weight: bold; margin-top: 5px; cursor: pointer; }
 
-        /* BOTTOM SHEET NORMAL */
+        /* Bottom Sheet, Tabs, etc... */
         .bottom-sheet { position: fixed; bottom: 0; left: 0; width: 100%; background: white; border-radius: 20px 20px 0 0; box-shadow: 0 -5px 20px rgba(0,0,0,0.2); z-index: 200; max-height: 85vh; display: flex; flex-direction: column; }
         .sheet-content { padding: 1rem; overflow-y: auto; }
         .sheet-handle { height: 20px; display: flex; justify-content: center; align-items: center; }
         .sheet-bar { width: 40px; height: 4px; background: #e5e7eb; border-radius: 2px; }
-        
         .tabs { display: flex; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
         .tab { flex: 1; padding: 10px; text-align: center; color: #666; font-weight: 600; border-bottom: 3px solid transparent; cursor: pointer; }
         .tab.active { color: #2563eb; border-color: #2563eb; }
-
-        /* CARD VIAJE ACTIVO */
+        
         .active-trip-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 1rem; padding: 1rem; }
         .eta-display { text-align: center; margin-bottom: 1rem; background: white; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #dbeafe; }
         .eta-time { font-size: 1.5rem; font-weight: 800; color: #2563eb; }
         .eta-label { font-size: 0.8rem; color: #64748b; }
+        .step-indicator { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .step-circle { width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
         .loader-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-        .rotating-marker { transition: transform 0.5s linear; }
         .hidden { display: none !important; }
-        
+        .rotating-marker { transition: transform 0.5s linear; }
         .notification { position: fixed; top: 1rem; left: 1rem; right: 1rem; background: white; padding: 1rem; border-radius: 1rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 10000; animation: slideDown 0.3s; }
         @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
@@ -97,18 +114,18 @@
         <div class="req-content">
             <div style="text-align:center; margin-bottom:1rem">
                 <span style="font-size:2rem; font-weight:bold; color:#10b981" id="reqPrice">L --</span>
-                <span style="color:#9ca3af; font-size:0.9rem">Ganancia estimada</span>
+                <span style="color:#9ca3af; font-size:0.9rem; display:block">Ganancia estimada</span>
             </div>
 
             <div class="req-info-grid">
-                <div class="req-box" style="background:#312e81">
+                <div class="req-box" style="background:#312e81; border:1px solid #4338ca">
                     <small>A Recoger (Tú)</small>
-                    <div style="color:#818cf8"><span id="reqPickupTime">--</span> <span style="font-size:0.8rem">min</span></div>
+                    <div><span id="reqPickupTime">--</span> <span style="font-size:0.8rem">min</span></div>
                     <div style="font-size:0.8rem; color:#a5b4fc" id="reqPickupDist">-- km</div>
                 </div>
-                <div class="req-box">
+                <div class="req-box" style="border:1px solid #4b5563">
                     <small>Viaje Total</small>
-                    <div style="color:white"><span id="reqTripTime">--</span> <span style="font-size:0.8rem">min</span></div>
+                    <div><span id="reqTripTime">--</span> <span style="font-size:0.8rem">min</span></div>
                     <div style="font-size:0.8rem; color:#9ca3af" id="reqTripDist">-- km</div>
                 </div>
             </div>
