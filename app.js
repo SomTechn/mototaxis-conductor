@@ -1,5 +1,5 @@
 // ============================================
-// APP CONDUCTOR (CORREGIDO: RUTAS Y ACEPTACIÓN)
+// APP CONDUCTOR - FINAL FIX (INFO & ZOOM)
 // ============================================
 
 console.log('=== INICIANDO APP CONDUCTOR ===');
@@ -91,14 +91,11 @@ function iniciarGPS() {
             miUbicacion = { lat: latitude, lng: longitude, heading: heading || 0 };
             actualizarMiMarcador();
             
-            // Actualizar DB (Throttle simple)
             if (conductorData && conductorData.estado !== 'inactivo') {
                 window.supabaseClient.from('conductores')
                     .update({ latitud: latitude, longitud: longitude, rumbo: heading, ultima_actualizacion: new Date() })
                     .eq('id', conductorId).then();
             }
-            
-            // Si no hay solicitud activa ni carrera, centrar en mí
             if (!solicitudActual && !carreraEnCurso) {
                  mapa.setView([latitude, longitude], 16, { animate: true });
             }
@@ -116,11 +113,13 @@ function actualizarMiMarcador() {
 }
 
 // ============================================
-// 3. LOGICA Y REALTIME
+// 3. ESTADOS Y REALTIME
 // ============================================
 
 async function cargarEstadoActual() {
-    const { data } = await window.supabaseClient.from('carreras').select('*')
+    // CORRECCIÓN: Traer datos del cliente al cargar estado
+    const { data } = await window.supabaseClient.from('carreras')
+        .select('*, clientes(nombre, telefono)') // JOIN CLIENTES
         .eq('conductor_id', conductorId)
         .in('estado', ['asignada', 'aceptada', 'en_camino', 'en_curso']).maybeSingle();
 
@@ -149,13 +148,11 @@ function suscribirseACambios() {
     window.supabaseClient.channel('conductor-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'carreras' }, (payload) => {
             const nueva = payload.new;
-            // NUEVA CARRERA (Estado: buscando, Sin conductor)
             if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && 
                 nueva.estado === 'buscando' && !nueva.conductor_id) {
                 recibirNuevaSolicitud(nueva);
                 cargarDisponibles();
             }
-            // CAMBIO EN SOLICITUD ACTUAL
             if (payload.eventType === 'UPDATE' && nueva.id === solicitudActual?.id) {
                 if (nueva.estado !== 'buscando' && nueva.conductor_id !== conductorId) {
                     limpiarAlerta();
@@ -170,18 +167,14 @@ function suscribirseACambios() {
 // ============================================
 
 async function recibirNuevaSolicitud(carrera) {
-    // Validar si podemos recibirla
     if (conductorData.estado !== 'disponible' || carreraEnCurso) return;
     if (solicitudActual && solicitudActual.id === carrera.id) return;
 
     solicitudActual = carrera;
-    
-    // Alerta sonora
     const audio = document.getElementById('alertSound');
     if (audio) { audio.currentTime = 0; audio.play().catch(e=>{}); }
     if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
 
-    // Rellenar datos Overlay
     const precio = parseFloat(carrera.precio || 0).toFixed(2);
     safeText('reqType', carrera.tipo === 'directo' ? 'Viaje Directo' : 'Viaje Colectivo');
     safeText('reqAddressOrigin', carrera.origen_direccion);
@@ -189,17 +182,9 @@ async function recibirNuevaSolicitud(carrera) {
     safeText('reqPrice', 'L ' + precio);
     safeText('reqTripDist', (carrera.distancia_km||0) + ' km');
     safeText('reqTripTime', (carrera.tiempo_estimado_min||0));
-
-    // Resetear cálculo de recogida
-    safeText('reqPickupTime', '--');
-    safeText('reqPickupDist', '--');
+    safeText('reqPickupTime', '--'); safeText('reqPickupDist', '--');
     
-    // Mostrar Overlay
-    document.getElementById('requestOverlay').classList.add('active');
-    
-    // VISUALIZACIÓN RUTA COMPLETA: Yo -> Origen -> Destino
     if (miUbicacion && carrera.origen_lat && carrera.origen_lng) {
-        // 1. Calcular distancia a recoger
         const rutaPickup = await obtenerRutaOSRM(miUbicacion, { lat: carrera.origen_lat, lng: carrera.origen_lng });
         if (rutaPickup) {
             const min = Math.round(rutaPickup.duration / 60);
@@ -207,11 +192,10 @@ async function recibirNuevaSolicitud(carrera) {
             safeText('reqPickupTime', min);
             safeText('reqPickupDist', km + ' km');
         }
-        // 2. Dibujar trazado completo
-        dibujarRutaCompleta(carrera);
     }
 
-    // Timer 30s
+    document.getElementById('requestOverlay').classList.add('active');
+    
     let timeLeft = 30;
     const timerEl = document.getElementById('reqTimer');
     if(timerSolicitud) clearInterval(timerSolicitud);
@@ -222,35 +206,7 @@ async function recibirNuevaSolicitud(carrera) {
     }, 1000);
 
     resetSlider();
-}
-
-// NUEVA FUNCIÓN: Dibuja ruta de 3 puntos (Yo -> Cliente -> Destino)
-async function dibujarRutaCompleta(carrera) {
-    limpiarMapa();
-    
-    // Marcadores
-    const m1 = L.marker([carrera.origen_lat, carrera.origen_lng]).addTo(mapa).bindPopup('Recoger');
-    const m2 = L.marker([carrera.destino_lat, carrera.destino_lng]).addTo(mapa).bindPopup('Destino');
-    marcadoresRuta.push(m1, m2);
-
-    try {
-        if (miUbicacion) {
-            // OSRM soporta multiples coordenadas separadas por ;
-            const coords = `${miUbicacion.lng},${miUbicacion.lat};${carrera.origen_lng},${carrera.origen_lat};${carrera.destino_lng},${carrera.destino_lat}`;
-            const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-            const res = await fetch(url);
-            const json = await res.json();
-            
-            if (json.routes && json.routes[0]) {
-                // Dibujamos la ruta completa en azul
-                const ruta = L.geoJSON(json.routes[0].geometry, { style: { color: '#3b82f6', weight: 5, opacity: 0.7 } }).addTo(mapa);
-                marcadoresRuta.push(ruta);
-                
-                // Ajustar zoom para ver todo con margen inferior para el overlay
-                mapa.fitBounds(ruta.getBounds(), { paddingBottomRight: [0, 300], paddingTopLeft: [20, 20] });
-            }
-        }
-    } catch (e) { console.error('Error ruta completa', e); }
+    mostrarRutaPreview(carrera);
 }
 
 async function obtenerRutaOSRM(start, end) {
@@ -297,42 +253,32 @@ function resetSlider() {
     if(t) t.style.opacity = 1;
 }
 
-// --- ACEPTAR VIAJE (SOLUCIÓN SQL DEPENDENCY) ---
+// ACEPTAR
 async function aceptarSolicitudActual() {
     if (!solicitudActual) return;
     const id = solicitudActual.id;
     limpiarAlerta();
 
     try {
-        // Intentamos actualizar directamente. 
-        // IMPORTANTE: Requiere el FIX SQL en Supabase para funcionar.
+        // CORRECCIÓN: Traer datos del cliente al aceptar
         const { data, error } = await window.supabaseClient
             .from('carreras')
-            .update({ 
-                conductor_id: conductorId, 
-                estado: 'aceptada', 
-                fecha_aceptacion: new Date() 
-            })
+            .update({ conductor_id: conductorId, estado: 'aceptada', fecha_aceptacion: new Date() })
             .eq('id', id)
-            .is('conductor_id', null) // Aseguramos concurrencia
-            .select()
+            .is('conductor_id', null)
+            .select('*, clientes(nombre, telefono)') // JOIN CLIENTES
             .maybeSingle();
 
         if (error || !data) {
-            console.error(error);
-            alert('No se pudo aceptar el viaje (Ya fue tomado o error de permisos).');
+            alert('Error: Otro conductor tomó el viaje.');
             cargarDisponibles();
         } else {
             carreraEnCurso = data;
-            // Ponemos al conductor ocupado
             await window.supabaseClient.from('conductores').update({ estado: 'en_carrera' }).eq('id', conductorId);
             conductorData.estado = 'en_carrera';
             mostrarPantallaViaje(data);
         }
-    } catch (e) { 
-        console.error(e);
-        alert('Error de conexión'); 
-    }
+    } catch (e) { alert('Error red'); }
 }
 
 function rechazarSolicitudActual() { limpiarAlerta(); cargarDisponibles(); }
@@ -356,34 +302,60 @@ async function mostrarPantallaViaje(carrera) {
     const container = document.getElementById('viajeActivoContainer');
     if (!container) return;
     
-    // LÓGICA DE RUTAS SEGÚN ESTADO
-    let titulo = '', btn = '', color = '';
+    // Obtener datos del cliente (Seguro contra nulls)
+    const nombreCliente = carrera.clientes?.nombre || 'Cliente';
+    const telCliente = carrera.clientes?.telefono || '';
+
+    // ETA
+    let dest = (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') 
+        ? { lat: carrera.origen_lat, lng: carrera.origen_lng }
+        : { lat: carrera.destino_lat, lng: carrera.destino_lng };
     
-    if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
-        titulo = 'Yendo a Recoger'; 
-        color = '#f59e0b';
-        btn = `<button class="swipe-btn btn-accept" onclick="reportarLlegada()">LLEGUÉ AL PUNTO</button>`;
-        
-        // RUTA 1: Yo -> Origen Pasajero
-        if (miUbicacion) dibujarRuta(miUbicacion, {lat: carrera.origen_lat, lng: carrera.origen_lng}, '#f59e0b');
-        
-    } else {
-        titulo = 'Llevando al Destino'; 
-        color = '#10b981';
-        btn = `<button class="swipe-btn btn-accept" onclick="completarViaje()">FINALIZAR VIAJE</button>`;
-        
-        // RUTA 2: Origen (o mi ubicación actual) -> Destino
-        if (miUbicacion) dibujarRuta(miUbicacion, {lat: carrera.destino_lat, lng: carrera.destino_lng}, '#10b981');
+    let etaText = '--:--';
+    if (miUbicacion) {
+        const route = await obtenerRutaOSRM(miUbicacion, dest);
+        if (route) {
+            const min = Math.round(route.duration / 60);
+            etaText = new Date(Date.now() + min*60000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        }
     }
 
+    let titulo = 'Yendo a Recoger', btn = '', color = '#f59e0b';
+    if (carrera.estado === 'aceptada' || carrera.estado === 'en_camino') {
+        btn = `<button class="swipe-btn btn-accept" onclick="reportarLlegada()">LLEGUÉ AL PUNTO</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, dest, '#f59e0b');
+    } else {
+        titulo = 'Llevando al Destino'; color = '#10b981';
+        btn = `<button class="swipe-btn btn-accept" onclick="completarViaje()">FINALIZAR VIAJE</button>`;
+        if (miUbicacion) dibujarRuta(miUbicacion, dest, '#10b981');
+    }
+
+    // HTML INCRUSTADO CON DATOS
     container.innerHTML = `
         <div class="active-trip-card" style="border-left: 5px solid ${color}">
-            <h3 style="margin:0 0 1rem 0; color:${color}">${titulo}</h3>
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+                <div>
+                    <h3 style="margin:0; color:${color}">${titulo}</h3>
+                    <div style="font-size:1.1rem; font-weight:bold; margin-top:5px">👤 ${nombreCliente}</div>
+                </div>
+                <div class="eta-display" style="margin:0; padding:5px 10px">
+                    <div class="eta-label">LLEGADA</div>
+                    <div class="eta-time" style="font-size:1.2rem">${etaText}</div>
+                </div>
+            </div>
+
             <div class="step-indicator"><div class="step-circle">1</div><div><small>Recoger:</small><br><strong>${carrera.origen_direccion}</strong></div></div>
             <div class="step-indicator"><div class="step-circle">2</div><div><small>Destino:</small><br><strong>${carrera.destino_direccion}</strong></div></div>
+            
+            <div style="background:#e0f2fe; padding:10px; border-radius:8px; margin-bottom:1rem; display:flex; justify-content:space-between">
+                <div><strong>L ${carrera.precio}</strong></div>
+                <div>${carrera.distancia_km} km</div>
+            </div>
+
             <div style="display:flex; gap:10px; margin: 1rem 0">
-                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('https://waze.com/ul?ll=${carrera.origen_lat},${carrera.origen_lng}&navigate=yes')">🗺️ Waze</button>
-                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('tel:+50400000000')">📞 Llamar</button>
+                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes')">🗺️ Waze</button>
+                <button class="btn-reject" style="background:#f3f4f6; color:#000; border:none" onclick="window.open('tel:${telCliente}')">📞 Llamar</button>
             </div>
             ${btn}
             <button class="btn-reject" onclick="cancelarViaje()">Cancelar Viaje</button>
@@ -392,7 +364,11 @@ async function mostrarPantallaViaje(carrera) {
 
 async function reportarLlegada() {
     if(!confirm('¿Pasajero abordó?')) return;
-    const { data } = await window.supabaseClient.from('carreras').update({ estado: 'en_curso', fecha_abordaje: new Date() }).eq('id', carreraEnCurso.id).select().single();
+    const { data } = await window.supabaseClient.from('carreras')
+        .update({ estado: 'en_curso', fecha_abordaje: new Date() })
+        .eq('id', carreraEnCurso.id)
+        .select('*, clientes(nombre, telefono)') // JOIN CLIENTES
+        .single();
     carreraEnCurso = data;
     mostrarPantallaViaje(data);
 }
@@ -452,13 +428,19 @@ async function dibujarRuta(p1, p2, color) {
         if (json.routes && json.routes[0]) {
             const ruta = L.geoJSON(json.routes[0].geometry, { style: { color: color, weight: 5 } }).addTo(mapa);
             marcadoresRuta.push(ruta);
-            mapa.fitBounds(ruta.getBounds(), { padding: [50,50] });
+            // AJUSTE ZOOM: Padding inferior grande para el bottom sheet
+            mapa.fitBounds(ruta.getBounds(), { paddingBottomRight: [20, 350], paddingTopLeft: [20, 50] });
         }
     } catch(e) {}
 }
 
 function mostrarRutaPreview(carrera) {
-    // Ya no se usa directamente porque usamos dibujarRutaCompleta en el overlay
+    limpiarMapa();
+    const m1 = L.marker([carrera.origen_lat, carrera.origen_lng]).addTo(mapa);
+    const m2 = L.marker([carrera.destino_lat, carrera.destino_lng]).addTo(mapa);
+    marcadoresRuta.push(m1, m2);
+    const group = new L.featureGroup([m1, m2]);
+    mapa.fitBounds(group.getBounds(), { padding: [100,50] });
 }
 
 function limpiarMapa() { marcadoresRuta.forEach(l => mapa.removeLayer(l)); marcadoresRuta = []; }
